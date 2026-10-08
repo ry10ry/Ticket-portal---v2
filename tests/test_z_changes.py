@@ -56,8 +56,16 @@ def test_upload_review_return_delete():
    part=next(p for p in attachments if p.get_filename()==f['filename'])
    assert part.get_payload(decode=True)==base64.b64decode(f['data'])
   body=message.get_body(preferencelist=('plain',)).get_content()
-  assert 'MOMCC Infra TL Support' in body and 'MOMCC Infra Manager Approval' in body
-  assert 'SGT' in body and 'cr-infra_tl@example.com' in body and 'cr-infra_manager@example.com' in body
+  assert 'Support and Approval Records' not in body and 'MOMCC Infra TL Support' not in body
+  assert 'For you review and support.' in body
+  html=message.get_body(preferencelist=('html',)).get_content()
+  assert '<strong>Background / Reason for Change:</strong>' in html
+  assert '<strong>Scope of Change:</strong>' in html
+  assert '<table' in html and '<td>&nbsp;</td>' in html
+  assert 'Support and Approval Records' not in html
+  record=next(p for p in attachments if p.get_filename().endswith('Support and Approval Record.txt')).get_payload(decode=True).decode()
+  assert 'SGT' in record and 'cr-infra_tl@example.com' in record and 'cr-infra_manager@example.com' in record
+  assert 'MOMCC Infra TL Support' in record and 'MOMCC Infra Manager Approval' in record
   assert 'Please update runbook' not in body
   assert all(h['content'].get('_actor') for h in r['history'])
   assert i.post(path+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==403

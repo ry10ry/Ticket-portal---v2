@@ -38,3 +38,8 @@ The backend rejects incomplete or stale approval cycles, and never substitutes a
 The email update passed nine tests on SQLite, including attachment bytes and approval-version checks, and Chromium downloaded and validated the actual EML.
 
 For this email update, replace app/changes.py and app/static/changes.js and add app/cr_email.py. No new dependency or database migration is required. Rebuild the application image, then refresh the browser. Service Request notifications remain pending the Service Request module.
+
+
+### ISTD body format update
+
+The draft body now contains Dear ISTD, bold Background / Reason for Change and Scope of Change headings with their entered text, followed by “For you review and support.” and the screenshot-style summary table. S/N is 1 and CR Number is filled; Environment, Description, Deployment Start Date/Time and Impact Assessment remain blank for editing in Outlook. Support/approval details appear only in the independent text attachment. Approval prerequisites and the three approved document attachments are unchanged. Replace app/cr_email.py, rebuild web/scheduler, and download a new draft; existing downloaded EML files do not change.

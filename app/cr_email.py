@@ -41,20 +41,23 @@ def singapore_time(value):
 
 def draft_message(row, submission, support, approval, files, identities):
     number=clean_number(row.number);content=json.loads(approval.snapshot)
-    lines=['Dear ISTD,','',f'Please review the following Change Request: {number}.','',
+    lines=['Dear ISTD,','',
         'Background / Reason for Change:',content.get('background',''),'',
         'Scope of Change:',content.get('scope',''),'',
-        'Support and Approval Records:']
+        'For you review and support.','',
+        'S/N | Environment | CR Number | Description | Deployment - Start Date/Time | Impact Assessment',
+        f'1 |  | {number} |  |  | ']
+    records=['Support and Approval Records:',number,'']
     for label,h in [('MOMCC Infra TL Support',support),('MOMCC Infra Manager Approval',approval)]:
         person=identities[h.actor_id]
         captured=json.loads(h.snapshot).get('_actor',{})
         name=captured.get('name',person.name);email=captured.get('email',person.email)
         role=captured.get('role',person.role)
-        lines += [label,f'Name: {name}',f'Email: {email}',f'Role: '+{'infra_tl':'MOMCC Infra TL','infra_manager':'MOMCC Infra Manager','admin':'Administrator','infra':'MOMCC Infra'}.get(role,role),
+        records += [label,f'Name: {name}',f'Email: {email}',f'Role: '+{'infra_tl':'MOMCC Infra TL','infra_manager':'MOMCC Infra Manager','admin':'Administrator','infra':'MOMCC Infra'}.get(role,role),
             f'Date/Time: {singapore_time(h.created_at)}',f'Audit record: {h.id}; CR revision: {h.version}',
             'Comment: '+(h.reason or '(No comment recorded)'), '']
-    lines += ['Attached documents:']+[LABELS[f.kind]+': '+f.filename for f in files]
-    lines += ['',f'Current submission: {singapore_time(submission.created_at)}',
+    records += ['Attached documents:']+[LABELS[f.kind]+': '+f.filename for f in files]
+    records += ['',f'Current submission: {singapore_time(submission.created_at)}',
               'The attached documents are the versions reviewed and approved in this submission cycle.','',
               'Thank you.']
     text='\n'.join(lines)
@@ -62,9 +65,18 @@ def draft_message(row, submission, support, approval, files, identities):
     msg['Subject']=number+' - Change Request for ISTD Review'
     msg['X-Unsent']='1'
     msg.set_content(text)
-    msg.add_alternative('<html><body>'+''.join('<p style="white-space:pre-wrap">'+escape(line)+'</p>' for line in lines)+'</body></html>',subtype='html')
+    def paragraph(value):
+        return '<p style="margin:0 0 18px 0;">'+escape(value).replace('\n','<br>')+'</p>'
+    html='<html><body style="font-family:Arial,sans-serif;font-size:11pt;">'+paragraph('Dear ISTD,')
+    html+='<p><strong>Background / Reason for Change:</strong></p>'+paragraph(content.get('background',''))
+    html+='<p><strong>Scope of Change:</strong></p>'+paragraph(content.get('scope',''))
+    html+=paragraph('For you review and support.')
+    html+='<table border="1" cellspacing="0" cellpadding="7" style="border-collapse:collapse;width:100%;font-size:10pt;border:1px solid black;"><thead>'
+    html+='<tr style="background-color:#d3d3d3;"><th rowspan="2">S/N</th><th rowspan="2">Environment</th><th rowspan="2">CR Number</th><th rowspan="2">Description</th><th>Deployment</th><th rowspan="2">Impact Assessment (e.g. what services will be down? IVRS, Self-help? Any maintenance announcement?)</th></tr><tr style="background-color:#d3d3d3;"><th>Start Date/Time</th></tr>'
+    html+='</thead><tbody><tr><td>1</td><td>&nbsp;</td><td>'+escape(number)+'</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr></tbody></table></body></html>'
+    msg.add_alternative(html,subtype='html')
     for f in files:
         subtype='vnd.openxmlformats-officedocument.'+('wordprocessingml.document' if f.kind=='change_form' else 'spreadsheetml.sheet')
         msg.add_attachment(f.data,maintype='application',subtype=subtype,filename=f.filename)
-    msg.add_attachment(text.encode('utf-8'),maintype='text',subtype='plain',filename=number+' - Support and Approval Record.txt')
+    msg.add_attachment('\n'.join(records).encode('utf-8'),maintype='text',subtype='plain',filename=number+' - Support and Approval Record.txt')
     return msg.as_bytes(),number+' - ISTD Email Draft.eml'
