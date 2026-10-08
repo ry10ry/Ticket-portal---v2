@@ -12,7 +12,7 @@ Dashboard has exactly three cards:
 - Pending Approval: currently awaiting TL or Manager approval.
 - Total SR: all SRs, including In-progress records.
 
-CR & SR Notifications is a shared internal navigation item with an unread badge. Submissions notify TLs, Managers and Admins. Approval/return notifies the submitting Infra and approvers. Notification links open the SR, and reading the notification page marks only the signed-in user's CR and SR notifications as read. Fault notifications remain on their own page and keep their independent read state.
+Notifications is a single sidebar item, with Fault Report and CR & SR tabs inside its page. The sidebar badge counts unread notifications. Submissions notify TLs, Managers and Admins. Approval/return notifies the submitting Infra and approvers. Notification links open the SR, and reading the notification page marks only the signed-in user's CR and SR notifications as read. Fault notifications remain on their own page and keep their independent read state.
 
 Attachments allow five active files, up to 10 MB per file and 20 MB total. PNG, JPEG, GIF and WebP are detected from their content and displayed inline; other files, including SVG/HTML, are downloads. Removed files remain accessible in version history to internal users. Files and notifications are stored in MySQL and included in normal database backups. The existing HTTPS config's 45 MB request limit supports base64 upload encoding.
 
