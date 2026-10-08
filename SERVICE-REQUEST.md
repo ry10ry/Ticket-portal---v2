@@ -1,0 +1,44 @@
+# Service Request
+
+Service Requests are internal to MOMCC Infra, MOMCC Infra TL, MOMCC Infra Manager and Admin. Requesters cannot see the navigation, Dashboard, notifications or attachment APIs.
+
+Raise Service Request immediately allocates `SR#MOMCC-YYYYMMDD-NN` using the Singapore date and an independent daily sequence. It creates an In-progress record, which remains after closing the dialog. Enter Subject and Description, attach optional files/screenshots, and save or Submit for Approval. Pending/Approved content is locked; return it before editing. Returned SRs retain their number and can be resubmitted.
+
+Approval has one stage: **either MOMCC Infra TL or MOMCC Infra Manager can approve**. Both approvals are not required. Either can return with a required reason. Staff cannot approve their own request; Admin can manage any request and override. Internal users can comment and view version history.
+
+Dashboard has exactly three cards:
+
+- Submitted SR: distinct SRs submitted at least once, including returned/approved records; resubmissions do not increase this count.
+- Pending Approval: currently awaiting TL or Manager approval.
+- Total SR: all SRs, including In-progress records.
+
+SR Notifications is a separate navigation item with an unread badge. Submissions notify TLs, Managers and Admins. Approval/return notifies the submitting Infra and approvers. Notification links open the SR, and reading the notification page marks only the signed-in user's SR notifications as read. Fault notifications remain separate.
+
+Attachments allow five active files, up to 10 MB per file and 20 MB total. PNG, JPEG, GIF and WebP are detected from their content and displayed inline; other files, including SVG/HTML, are downloads. Removed files remain accessible in version history to internal users. Files and notifications are stored in MySQL and included in normal database backups. The existing HTTPS config's 45 MB request limit supports base64 upload encoding.
+
+## Deployment files
+
+Replace:
+
+- app/main.py (registers the SR module)
+- app/static/index.html (adds SR navigation and script)
+- app/static/style.css (three-card Dashboard and image preview styles)
+
+Add:
+
+- app/services.py
+- app/static/services.js
+- tests/test_services.py (test coverage)
+- SERVICE-REQUEST.md (this guide)
+
+Keep all existing application, CR, template and dependency files. No dependency change or manual database migration is needed: startup creates new sr_sequences, service_requests, sr_files, sr_history and sr_notifications tables. Do not delete existing database volumes.
+
+Merge these files into the extracted application, then rebuild and restart:
+
+```powershell
+docker compose -f compose.yaml -f compose.override.yaml -f compose.ssl.yaml up -d --build
+```
+
+Refresh with Ctrl+F5. If startup reports a missing app.services module, confirm that app/services.py is in the same application directory as app/main.py before rebuilding.
+
+Validation: eleven tests passed on SQLite and a disposable MySQL database, covering existing fault/CR/email behavior, either-role approval, return/resubmit, Submitted counts, notification isolation/read state, image preview access, historical attachments and concurrent numbers. Chromium also exercised the SR UI, uploads, inline screenshot preview, approval and notification links.

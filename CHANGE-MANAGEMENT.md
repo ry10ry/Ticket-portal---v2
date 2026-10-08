@@ -27,7 +27,7 @@ Use the actual HTTPS service name from compose.ssl.yaml if it differs from proxy
 
 The upload release passed seven tests on SQLite and a separate empty MySQL database, covering existing fault workflows, immediate creation, uploads/downloads, access control, comments, return/resubmission, file history, concurrent numbering and Admin deletion. Chromium exercised the complete create/close/reopen/download/upload/comment/support/approve/delete UI flow. Tests must use disposable databases, never business data.
 
-Service Management is not yet implemented. The earlier UPDATE-CR-TEMPLATES.md describes the superseded online-form release; this document describes the current workflow.
+Service Request is now available as a separate internal module; see SERVICE-REQUEST.md. The earlier UPDATE-CR-TEMPLATES.md describes the superseded online-form release; this document describes the current workflow.
 
 ## ISTD email draft
 
@@ -37,7 +37,7 @@ The backend rejects incomplete or stale approval cycles, and never substitutes a
 
 The email update passed nine tests on SQLite, including attachment bytes and approval-version checks, and Chromium downloaded and validated the actual EML.
 
-For this email update, replace app/changes.py and app/static/changes.js and add app/cr_email.py. No new dependency or database migration is required. Rebuild the application image, then refresh the browser. Service Request notifications remain pending the Service Request module.
+For this email update, replace app/changes.py and app/static/changes.js and add app/cr_email.py. No new dependency or database migration is required. Rebuild the application image, then refresh the browser. Service Request notifications are now implemented in the separate SR module.
 
 
 ### ISTD body format update

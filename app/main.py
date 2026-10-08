@@ -567,3 +567,6 @@ def delete_ticket(ticket_id:int,user:User=Depends(current_user),session:Session=
 # Register internal change management models and routes before application startup.
 from app.changes import register_changes
 register_changes(app)
+
+from app.services import register_services
+register_services(app)
