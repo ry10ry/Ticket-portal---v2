@@ -2,7 +2,7 @@
 
 Raise Change Request immediately allocates a date-based CR number and creates an In-progress record. Closing the dialog does not delete it. Dashboard totals include those records.
 
-The portal edits only Background / Reason for Change and Scope of Change. Download CR Form, Runbook and Checklist templates, complete them locally, then upload them as DOCX/XLSX documents. All three uploaded documents and both text fields are required before Submit. Saving without submitting is permitted. Previously stored summary and online-form content is retained in the database.
+The portal edits Description, Background / Reason for Change and Scope of Change. Description is displayed first and supplies the CR Form download filename. Template downloads save the entered content before generating the file. Download CR Form, Runbook and Checklist templates, complete them locally, then upload them as DOCX/XLSX documents. All three uploaded documents and both text fields are required before Submit. Saving without submitting is permitted. Previously stored summary and online-form content is retained in the database.
 
 Submit → Pending Review → MOMCC Infra TL Support → Pending Approval → MOMCC Infra Manager Approval → Approved. TL/Manager can return the CR with a required comment; it returns to In-progress. Resubmissions retain the CR number and pass TL review again. Staff cannot review their own CR; Admin can manage all records. Requesters cannot access CR APIs, templates, files or Dashboard.
 
