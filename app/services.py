@@ -7,7 +7,7 @@ from urllib.parse import quote
 from fastapi import Depends,HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel,Field
-from sqlalchemy import Column,Integer,String,Text,DateTime,ForeignKey,LargeBinary,Boolean,select,update
+from sqlalchemy import Column,Integer,String,Text,DateTime,ForeignKey,LargeBinary,Boolean,select,update,delete
 from sqlalchemy.dialects.mysql import LONGTEXT,LONGBLOB
 from sqlalchemy.orm import Session
 from app.main import Base,User,db,current_user,staff,write_guard,now
@@ -62,6 +62,8 @@ class Save(BaseModel):
     description:str=Field(default='',max_length=20000)
     uploads:list[Upload]=Field(default_factory=list,max_length=5)
     remove_file_ids:list[int]=Field(default_factory=list,max_length=5)
+class Delete(BaseModel):
+    version:int=Field(ge=1)
 class Action(BaseModel):
     version:int=Field(ge=1)
     action:Literal['submit','approve','return','comment']
@@ -127,6 +129,13 @@ def register_services(app):
         if not f or f.sr_id!=id:raise HTTPException(404,'Attachment not found')
         inline=preview and f.mime.startswith('image/')
         return Response(f.data,media_type=f.mime if inline else 'application/octet-stream',headers={'Content-Disposition':('inline' if inline else 'attachment')+"; filename*=UTF-8''"+quote(f.filename,safe=''),'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})
+    @app.post('/api/services/{id}/delete',dependencies=[Depends(write_guard)])
+    def remove(id:int,b:Delete,u:User=Depends(current_user),s:Session=Depends(db)):
+        if u.role!='admin':raise HTTPException(403,'Administrator access required')
+        r=get_sr(s,id)
+        mutate(s,r,b.version)
+        for model in [SRNotification,SRHistory,SRFile]:s.execute(delete(model).where(model.sr_id==id))
+        s.delete(r);s.commit();return {'ok':True}
     @app.post('/api/services/{id}/save',dependencies=[Depends(write_guard)])
     def save(id:int,b:Save,u:User=Depends(current_user),s:Session=Depends(db)):
         staff(u);r=get_sr(s,id)

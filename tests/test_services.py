@@ -64,3 +64,23 @@ def test_sr_concurrent_numbers_and_self_approval():
   r=tl.post(p+'/actions',json=dict(version=r['version'],action='submit'),headers=H).json()
   assert tl.post(p+'/actions',json=dict(version=r['version'],action='approve'),headers=H).status_code==403
   assert admin.post(p+'/actions',json=dict(version=r['version'],action='approve'),headers=H).json()['status']=='Approved'
+
+def test_admin_sr_delete_cleans_files_history_notifications_and_keeps_sequence():
+ from sqlalchemy import select,func
+ from sqlalchemy.orm import Session
+ from app.main import engine
+ from app.services import SRFile,SRHistory,SRNotification
+ with TestClient(app) as admin,TestClient(app) as infra,TestClient(app) as tl,TestClient(app) as requester:
+  login(admin,'admin@example.com');login(infra,'sr-infra@example.com');login(tl,'sr-infra_tl@example.com');login(requester,'sr-requester@example.com')
+  r=infra.post('/api/services',json={},headers=H).json();p='/api/services/'+str(r['id']);number=r['number']
+  r=infra.post(p+'/save',json=dict(version=r['version'],subject='Delete test',description='Temporary SR',uploads=[dict(filename='image.png',data=base64.b64encode(PNG).decode())]),headers=H).json();file_id=r['files'][0]['id']
+  r=infra.post(p+'/actions',json=dict(version=r['version'],action='submit'),headers=H).json()
+  for c in [infra,tl,requester]:assert c.post(p+'/delete',json=dict(version=r['version']),headers=H).status_code==403
+  assert admin.post(p+'/delete',json=dict(version=r['version']-1),headers=H).status_code==409
+  assert admin.get(p).status_code==200
+  assert admin.post(p+'/delete',json=dict(version=r['version']),headers=H).status_code==200
+  assert admin.get(p).status_code==404 and admin.get(p+'/files/'+str(file_id)).status_code==404
+  with Session(engine) as s:
+   for model in [SRFile,SRHistory,SRNotification]:assert s.scalar(select(func.count()).select_from(model).where(model.sr_id==r['id']))==0
+  next_sr=infra.post('/api/services',json={},headers=H).json()
+  assert int(next_sr['number'].rsplit('-',1)[1])>int(number.rsplit('-',1)[1])

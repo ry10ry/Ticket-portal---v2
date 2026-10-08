@@ -42,3 +42,11 @@ docker compose -f compose.yaml -f compose.override.yaml -f compose.ssl.yaml up -
 Refresh with Ctrl+F5. If startup reports a missing app.services module, confirm that app/services.py is in the same application directory as app/main.py before rebuilding.
 
 Validation: eleven tests passed on SQLite and a disposable MySQL database, covering existing fault/CR/email behavior, either-role approval, return/resubmit, Submitted counts, notification isolation/read state, image preview access, historical attachments and concurrent numbers. Chromium also exercised the SR UI, uploads, inline screenshot preview, approval and notification links.
+
+## Admin deletion and close-after-save update
+
+Admin can delete any SR after the confirmation dialog. The operation removes the request, current and historical attachments, all SR notifications and history in one transaction. Other roles are rejected by the backend. Version checks reject stale deletion requests, and daily numbers are never reused after deletion.
+
+CR and SR details now close after a successful Save or Submit and refresh their list/Dashboard. Failed validation leaves the dialog open. Approval, return and comment operations keep their existing behavior.
+
+Replace app/services.py, app/static/services.js and app/static/changes.js, then rebuild web/scheduler and refresh the browser. No database migration or new dependency is needed. Fourteen tests passed on SQLite/MySQL, and Chromium verified successful-save/submit closure, failed-submit retention, and Admin deletion cancellation/confirmation.
