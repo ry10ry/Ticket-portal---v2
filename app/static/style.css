@@ -7,3 +7,5 @@
 .danger{background:#b52b38;margin:12px 0}
 
 .cr-dialog{width:min(1150px,96vw)}.cr-dialog fieldset{border:0;padding:0;min-width:0}.cr-dialog fieldset:disabled textarea,.cr-dialog fieldset:disabled input{color:#24324b;opacity:1;background:#f8faff}.cr-dialog td{white-space:pre-wrap;vertical-align:top}.cr-dialog th{vertical-align:middle}.cr-snapshot{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace}
+
+.cr-template{border:1px solid #dde5f2;border-radius:8px;padding:18px;margin:16px 0}.cr-template>summary{font-weight:700;cursor:pointer;overflow-wrap:anywhere}.cr-template .grid{margin-top:16px}.runbook-grid{min-width:1800px}.runbook-grid td{padding:8px}.runbook-grid input,.runbook-grid textarea{min-width:100px}.cr-template details{margin:20px 0}

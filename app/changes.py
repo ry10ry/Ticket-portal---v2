@@ -4,9 +4,13 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Literal
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi.responses import Response
+from urllib.parse import quote
+from app.cr_documents import schema, names, validate_forms, export_doc, export_xlsx
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.mysql import LONGTEXT
 from app.main import Base, User, db, current_user, staff, write_guard, now
 
 
@@ -23,7 +27,7 @@ class ChangeRequest(Base):
     owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     status = Column(String(30), nullable=False, default='In-progress')
     version = Column(Integer, nullable=False, default=1)
-    content = Column(Text, nullable=False, default='{}')
+    content = Column(Text().with_variant(LONGTEXT(), 'mysql'), nullable=False, default='{}')
     created_at = Column(DateTime, nullable=False, default=now)
     updated_at = Column(DateTime, nullable=False, default=now)
 
@@ -36,7 +40,7 @@ class CRHistory(Base):
     action = Column(String(30), nullable=False)
     reason = Column(Text, nullable=False, default='')
     version = Column(Integer, nullable=False)
-    snapshot = Column(Text, nullable=False)
+    snapshot = Column(Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
     created_at = Column(DateTime, nullable=False, default=now)
 
 
@@ -51,6 +55,15 @@ class CRContent(BaseModel):
     change_form: str = Field(default='', max_length=50000)
     runbook: str = Field(default='', max_length=50000)
     checklist: str = Field(default='', max_length=50000)
+    forms: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+    @field_validator('forms')
+    @classmethod
+    def check_forms(cls, value):
+        if len(json.dumps(value)) > 500000:
+            raise ValueError('Combined form content is too large')
+        validate_forms(value)
+        return value
 
 
 class CRSave(BaseModel):
@@ -74,6 +87,7 @@ def read_cr(session, cr_id):
 def serialize_cr(row, session, detail=False):
     result = {c.name: getattr(row, c.name) for c in ChangeRequest.__table__.columns}
     result['content'] = json.loads(row.content)
+    result['document_names'] = names(row.number, result['content'].get('description',''))
     result['owner'] = session.get(User, row.owner_id).name
     if detail:
         result['history'] = [dict(id=h.id, action=h.action, reason=h.reason,
@@ -99,6 +113,22 @@ def mutate(session, row, version, **values):
 
 
 def register_changes(app):
+    @app.get('/api/changes/forms/schema')
+    def form_schema(user: User=Depends(current_user)):
+        staff(user)
+        return schema()
+
+    @app.get('/api/changes/{cr_id}/documents/{kind}')
+    def download_document(cr_id: int, kind: str, user: User=Depends(current_user), session: Session=Depends(db)):
+        staff(user)
+        if kind not in ('change_form','runbook','checklist'):
+            raise HTTPException(404, 'Unknown document')
+        data=serialize_cr(read_cr(session,cr_id),session,True)
+        payload=export_doc(data,data['history']) if kind=='change_form' else export_xlsx(data,kind)
+        filename=data['document_names'][kind]
+        mime='application/vnd.openxmlformats-officedocument.'+('wordprocessingml.document' if kind=='change_form' else 'spreadsheetml.sheet')
+        return Response(payload,media_type=mime,headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(filename,safe=''), 'Cache-Control':'no-store'})
+
     @app.get('/api/changes')
     def list_changes(user: User=Depends(current_user), session: Session=Depends(db)):
         staff(user)
@@ -166,10 +196,15 @@ def register_changes(app):
                 raise HTTPException(409, 'CR is not In-progress')
             content = json.loads(row.content)
             required = ['background','scope','environment','description','deployment_start','deployment_end',
-                        'impact','change_form','runbook','checklist']
+                        'impact']
             missing = [k for k in required if not str(content.get(k) or '').strip()]
             if missing:
                 raise HTTPException(422, 'Complete before submitting: '+', '.join(missing))
+            if content.get('forms'):
+                try: validate_forms(content['forms'], submission=True)
+                except ValueError as error: raise HTTPException(422, str(error))
+            elif any(not content.get(k,'').strip() for k in ('change_form','runbook','checklist')):
+                raise HTTPException(422, 'Complete all three forms before submitting')
             target = 'Pending Review'
         else:
             required_role = {'Pending Review':'infra_tl', 'Pending Approval':'infra_manager'}.get(row.status)
