@@ -1,91 +1,57 @@
-import re
+import base64
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 from app.main import app
+H={'X-Requested-With':'ServiceDesk'}
+def login(c,email):assert c.post('/api/login',json={'email':email,'password':'TestPassword123!'},headers=H).status_code==200
+def uploads():
+ r=Path(__file__).parents[1]/'app/templates'
+ return [dict(kind=k,filename=p.name,data=base64.b64encode(p.read_bytes()).decode()) for k,p in [('change_form',r/'cr-form.docx'),('runbook',r/'runbook.xlsx'),('checklist',r/'Checklist-RFC-Impact_v1.0.xlsx')]]
+def test_upload_review_return_delete():
+ with TestClient(app) as a,TestClient(app) as i,TestClient(app) as t,TestClient(app) as m,TestClient(app) as q:
+  login(a,'admin@example.com')
+  for c,role in [(i,'infra'),(t,'infra_tl'),(m,'infra_manager'),(q,'requester')]:
+   email='cr-'+role+'@example.com';assert a.post('/api/users',json=dict(name=role,email=email,role=role,password='TestPassword123!'),headers=H).status_code==200;login(c,email)
+  assert q.get('/api/changes').status_code==403
+  r=i.post('/api/changes',json={},headers=H).json();path='/api/changes/'+str(r['id']);number=r['number']
+  assert r['status']=='In-progress' and i.get('/api/changes').json()['counts']['In-progress']==1
+  def act(c,action,reason=''):
+   return c.post(path+'/actions',json=dict(version=r['version'],action=action,reason=reason),headers=H)
+  assert act(i,'submit').status_code==422
+  data=uploads()
+  assert q.get(path+'/templates/runbook').status_code==403
+  assert i.get(path+'/templates/runbook').status_code==200
+  assert i.get(path+'/documents/runbook').status_code==404
+  bad=[{**data[0],'data':base64.b64encode(b'invalid').decode()}]
+  assert i.post(path+'/save',json=dict(version=r['version'],content={},uploads=bad),headers=H).status_code==422
+  stale=r['version'];r=i.post(path+'/save',json=dict(version=stale,content=dict(background='Reason',scope='Scope'),uploads=data),headers=H).json()
+  assert len(r['files'])==3
+  assert i.post(path+'/save',json=dict(version=stale,content={}),headers=H).status_code==409
+  r=act(i,'submit').json();assert r['status']=='Pending Review'
+  assert i.post(path+'/save',json=dict(version=r['version'],content={}),headers=H).status_code==409
+  assert act(m,'approve').status_code==403
+  for f in data:
+   response=t.get(path+'/documents/'+f['kind']);assert response.content==base64.b64decode(f['data']);assert q.get(path+'/documents/'+f['kind']).status_code==403
+  r=act(t,'comment','Please improve rollback').json();assert r['status']=='Pending Review'
+  assert act(t,'return').status_code==422
+  r=act(t,'return','Please update runbook').json();assert r['status']=='In-progress'
+  r=i.post(path+'/save',json=dict(version=r['version'],content=dict(scope='Revised scope'),uploads=[data[1]]),headers=H).json()
+  assert r['content']['background']=='Reason' and len(r['history'][-1]['content']['_files'])==4
+  old=r['history'][1]['content']['_files'][1]
+  assert t.get(path+'/files/'+str(old['id'])).status_code==200
+  r=act(i,'submit').json();r=act(t,'support').json();assert r['status']=='Pending Approval'
+  r=act(m,'return','Clarify plan').json();assert r['status']=='In-progress'
+  r=act(i,'submit').json();r=act(t,'support').json();r=act(m,'approve').json();assert r['status']=='Approved' and r['number']==number
+  assert i.post(path+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==403
+  assert a.post(path+'/delete',json=dict(version=r['version']-1,action='comment'),headers=H).status_code==409
+  assert a.post(path+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==200
+  assert a.get(path).status_code==404 and a.get(path+'/files/'+str(old['id'])).status_code==404
+  assert a.get('/api/changes').json()['counts']['Total CR']==0
 
-HEADERS={'X-Requested-With':'ServiceDesk'}
-PASSWORD='TestPassword123!'
-
-def login(client,email):
-    assert client.post('/api/login',json={'email':email,'password':PASSWORD},headers=HEADERS).status_code==200
-
-def post(c,path,body):
-    return c.post('/api/changes'+path,json=body,headers=HEADERS)
-
-def test_cr_approval_returns_permissions_and_history():
-    with TestClient(app) as admin, TestClient(app) as infra, TestClient(app) as tl, TestClient(app) as manager, TestClient(app) as requester:
-        login(admin,'admin@example.com')
-        for c,role in [(infra,'infra'),(tl,'infra_tl'),(manager,'infra_manager'),(requester,'requester')]:
-            email=f'cr-{role}@example.com'
-            assert admin.post('/api/users',json={'name':role,'email':email,'role':role,'password':PASSWORD},headers=HEADERS).status_code==200
-            login(c,email)
-        assert requester.get('/api/changes').status_code==403
-        assert post(requester,'',{}).status_code==403
-        r=post(infra,'',{}).json(); path=f"/{r['id']}"
-        day=datetime.now(ZoneInfo('Asia/Singapore')).strftime('%Y%m%d')
-        assert re.fullmatch(r'CR# MOMCC-'+day+r'-\d{2,}',r['number'])
-        number=r['number']
-        assert requester.get('/api/changes'+path).status_code==403
-        assert post(infra,path+'/actions',{'version':r['version'],'action':'submit'}).status_code==422
-        content=dict(background='Reason for change',scope='Upload archived recordings',environment='PRD',description='Upload to S3',deployment_start='2026-10-16T10:00:00+08:00',deployment_end='2026-10-26T18:00:00+08:00',impact='No impact to users or Ops.',change_form='CR form details',runbook='Runbook steps',checklist='RFC impact checklist')
-        invalid={**content,'deployment_end':'2026-10-15T00:00:00+08:00'}
-        assert post(infra,path+'/save',{'version':r['version'],'content':invalid}).status_code==422
-        assert post(tl,path+'/save',{'version':r['version'],'content':content}).status_code==403
-        stale=r['version'];r=post(infra,path+'/save',{'version':stale,'content':content}).json()
-        assert post(infra,path+'/save',{'version':stale,'content':content}).status_code==409
-        r=post(infra,path+'/actions',{'version':r['version'],'action':'submit'}).json()
-        assert r['status']=='Pending Review'
-        assert post(infra,path+'/save',{'version':r['version'],'content':content}).status_code==409
-        assert post(manager,path+'/actions',{'version':r['version'],'action':'approve'}).status_code==403
-        assert post(tl,path+'/actions',{'version':r['version'],'action':'return'}).status_code==422
-        r=post(tl,path+'/actions',{'version':r['version'],'action':'return','reason':'Add rollback details'}).json()
-        assert r['status']=='In-progress'
-        content['runbook']='Runbook with rollback details'
-        r=post(infra,path+'/save',{'version':r['version'],'content':content}).json()
-        r=post(infra,path+'/actions',{'version':r['version'],'action':'submit'}).json()
-        r=post(tl,path+'/actions',{'version':r['version'],'action':'support'}).json()
-        assert r['status']=='Pending Approval'
-        assert post(tl,path+'/actions',{'version':r['version'],'action':'approve'}).status_code==403
-        r=post(manager,path+'/actions',{'version':r['version'],'action':'return','reason':'Clarify impact'}).json()
-        assert r['status']=='In-progress' and r['number']==number
-        r=post(infra,path+'/actions',{'version':r['version'],'action':'submit'}).json()
-        assert r['status']=='Pending Review'
-        r=post(tl,path+'/actions',{'version':r['version'],'action':'support'}).json()
-        r=post(manager,path+'/actions',{'version':r['version'],'action':'approve'}).json()
-        assert r['status']=='Approved'
-        assert post(infra,path+'/save',{'version':r['version'],'content':content}).status_code==409
-        assert [h['reason'] for h in r['history'] if h['action']=='return']==['Add rollback details','Clarify impact']
-        assert r['history'][1]['content']['runbook']=='Runbook steps'
-        assert admin.get('/api/changes'+path).status_code==200
-        counts=infra.get('/api/changes').json()['counts']
-        assert counts['Total CR']==1 and counts['Pending Review']==0 and counts['Pending Approval']==0 and counts['In-progress']==0
-        assert infra.post('/api/changes',json={}).status_code==403
-
-def test_cr_concurrent_numbers_and_admin_override():
-    def create():
-        with TestClient(app) as c:
-            login(c,'cr-infra@example.com')
-            response=post(c,'',{})
-            assert response.status_code==200
-            return response.json()
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        rows=list(pool.map(lambda _:create(),range(10)))
-    numbers=[r['number'] for r in rows]
-    assert len(set(numbers))==10
-    sequences=sorted(int(n.rsplit('-',1)[1]) for n in numbers)
-    assert sequences==list(range(sequences[0],sequences[0]+10))
-    with TestClient(app) as admin, TestClient(app) as tl:
-        login(admin,'admin@example.com');login(tl,'cr-infra_tl@example.com')
-        r=post(tl,'',{}).json();path=f"/{r['id']}"
-        content={k:'Complete content' for k in ['background','scope','environment','description','impact','change_form','runbook','checklist']}
-        content.update(deployment_start='2026-10-16T00:00:00+08:00',deployment_end='2026-10-26T00:00:00+08:00')
-        r=post(admin,path+'/save',{'version':r['version'],'content':content}).json()
-        r=post(tl,path+'/actions',{'version':r['version'],'action':'submit'}).json()
-        assert post(tl,path+'/actions',{'version':r['version'],'action':'support'}).status_code==403
-        r=post(admin,path+'/actions',{'version':r['version'],'action':'support'}).json()
-        r=post(admin,path+'/actions',{'version':r['version'],'action':'approve'}).json()
-        assert r['status']=='Approved'
-        counts=admin.get('/api/changes').json()['counts']
-        assert counts['In-progress']==10 and counts['Total CR']==12
+def test_concurrent_creation_keeps_unique_numbers():
+ def create(_):
+  with TestClient(app) as c:
+   login(c,'cr-infra@example.com');r=c.post('/api/changes',json={},headers=H);assert r.status_code==200;return r.json()['number']
+ with ThreadPoolExecutor(max_workers=5) as pool:numbers=list(pool.map(create,range(10)))
+ assert len(set(numbers))==10

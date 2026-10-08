@@ -1,29 +1,30 @@
-# Change Management
+# Change Management — current workflow
 
-These files extend the original application in `MOMCC-ServiceDesk-Full-v6-20261008.zip`. The ZIP is unchanged. Extract it, then copy this repository's `app/` and `tests/` files into the extracted application, merging directories and replacing matching files. Keep the remaining original files, including `requirements.txt`, `app/__init__.py`, and `tests/test_workflow.py`. Back up the database before deploying updates.
+Raise Change Request immediately allocates a date-based CR number and creates an In-progress record. Closing the dialog does not delete it. Dashboard totals include those records.
 
-Start using the original application instructions. Startup creates three additional tables (`change_requests`, `cr_sequences`, `cr_history`); existing fault ticket data is retained. Restart both the web process and scheduler after copying the files. This release adds Change Management only; Service Management is still pending.
+The portal edits only Background / Reason for Change and Scope of Change. Download CR Form, Runbook and Checklist templates, complete them locally, then upload them as DOCX/XLSX documents. All three uploaded documents and both text fields are required before Submit. Saving without submitting is permitted. Previously stored summary and online-form content is retained in the database.
 
-## Roles
+Submit → Pending Review → MOMCC Infra TL Support → Pending Approval → MOMCC Infra Manager Approval → Approved. TL/Manager can return the CR with a required comment; it returns to In-progress. Resubmissions retain the CR number and pass TL review again. Staff cannot review their own CR; Admin can manage all records. Requesters cannot access CR APIs, templates, files or Dashboard.
 
-Admin can view/manage all CRs and perform every review action. Admin's Users page now supports MOMCC Infra, Infra TL, and Infra Manager accounts in addition to Requester and Admin. Assign those roles to the appropriate people. Existing Infra accounts retain their existing role. Requesters cannot access CR APIs or navigation.
+Internal staff can download the completed files and add comments. Uploaded replacements retain older file versions; history provides download links for files saved at that revision. Admin can permanently delete a CR, all of its files and history after the UI confirmation. The daily sequence is never reset by deleting a CR.
 
-Infra staff can create CRs. The submitting user can edit and submit their own In-progress CR; Admin can manage any CR. TL supports or returns Pending Review CRs. Manager approves or returns Pending Approval CRs. Staff cannot support or approve their own CR; Admin retains override authority. Other internal staff can view records.
+## Deploy this update
 
-## Workflow
+Replace app/changes.py and app/static/changes.js, and update ssl/nginx.conf for the original HTTPS setup. Keep app/cr_documents.py, all three app/templates files, the updated requirements.txt, and the Change Management registration at the end of app/main.py. Do not modify the original application ZIP. Source files in this repository must be merged into the extracted application.
 
-Creation immediately reserves `CR# MOMCC-YYYYMMDD-NN`, using Singapore's creation date and a daily sequence starting at 01. Number allocation is transaction-safe, including concurrent requests. Resubmission preserves the number. After 99 the sequence continues to 100 without truncation.
+At startup SQLAlchemy creates the new cr_files table automatically. Files are stored in the database, including previous versions, so database backups now also cover uploaded CR documents. Earlier MySQL deployments still need migrations/001_cr_form_documents.sql to widen the CR content/history fields if it has not been applied already.
 
-In-progress → Pending Review → Pending Approval → Approved. TL or Manager must provide a reason when returning a CR to In-progress. A returned CR goes through TL review again. Reviewed content is locked against editing. Version checks prevent stale edits/actions. Audit history preserves content snapshots and actor, timestamp, action, and return reason.
+Uploads allow one DOCX CR Form and two XLSX documents, each up to 10 MB. The supplied nginx configuration uses client_max_body_size 45m to accommodate the three files plus JSON base64 encoding. Rebuild web/scheduler after source changes and restart the HTTPS proxy after its config changes. Do not delete database volumes.
 
-The Dashboard counts In-progress CR, Pending Review, Pending Approval, and Total CR across all internal records. Total includes Approved CRs. In-progress includes unsubmitted and returned CRs.
+For the original HTTPS Compose deployment:
 
-Each ticket records Background / Reason for Change, Scope of Change, and the screenshot's summary table: S/N, Environment, CR Number, Description, Deployment / Start Date/Time, and Impact Assessment. S/N is the summary row number (1), not the CR sequence. Deployment supports start/end dates and times in Singapore time, including multiple days. The CR number uses creation date independently of deployment date.
+```powershell
+docker compose -f compose.yaml -f compose.override.yaml -f compose.ssl.yaml up -d --build
+docker compose -f compose.yaml -f compose.override.yaml -f compose.ssl.yaml restart proxy
+```
 
-Change Request Form, Runbook, and Checklist-RFC-Impact now have template-backed online fields and DOCX/XLSX export. File names follow the CR number and Description; Checklist keeps its original name. Runbook includes all three workbook sheets, and Checklist includes its original reference matrix. Existing free-text content remains visible. Drafts may be incomplete; structured mandatory fields are checked before submission. See UPDATE-CR-TEMPLATES.md for the deployment file list and database upgrade.
+Use the actual HTTPS service name from compose.ssl.yaml if it differs from proxy. Refresh the browser with Ctrl+F5.
 
-## Validation
+Seven tests passed on SQLite and a separate empty MySQL database, covering existing fault workflows, immediate creation, uploads/downloads, access control, comments, return/resubmission, file history, concurrent numbering and Admin deletion. Chromium exercised the complete create/close/reopen/download/upload/comment/support/approve/delete UI flow. Tests must use disposable databases, never business data.
 
-From the merged application's root, install its requirements plus `pytest==8.3.5 httpx==0.28.1`, then run `python -m pytest -q`. Run the complete suite: the original workflow tests initialize the test database/accounts, and the CR tests add approval and concurrency coverage. Never use a business database for tests. `TEST_DATABASE_URL` must name an empty disposable database if supplied; otherwise the existing test runner uses disposable SQLite.
-
-Validated: eight tests passed on SQLite and on a separate disposable MySQL database; concurrent CR allocation; return/resubmit, role restrictions, stale versions and audit snapshots; existing fault workflows. Headless Chromium also verified sign-in, CR creation, online filling, submission, TL support and Manager approval using Admin override, Dashboard/detail rendering, and absence of JavaScript errors.
+Service Management is not yet implemented. The earlier UPDATE-CR-TEMPLATES.md describes the superseded online-form release; this document describes the current workflow.

@@ -1,5 +1,9 @@
 """Internal CR tracking: daily numbering, versioned edits and approval audit trail."""
 import json
+import base64
+import binascii
+import io
+import zipfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Literal
@@ -8,9 +12,9 @@ from fastapi.responses import Response
 from urllib.parse import quote
 from app.cr_documents import schema, names, validate_forms, export_doc, export_xlsx
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, select, update
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, select, update, delete, LargeBinary
 from sqlalchemy.orm import Session
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.mysql import LONGTEXT, LONGBLOB
 from app.main import Base, User, db, current_user, staff, write_guard, now
 
 
@@ -44,6 +48,33 @@ class CRHistory(Base):
     created_at = Column(DateTime, nullable=False, default=now)
 
 
+class CRFile(Base):
+    __tablename__ = 'cr_files'
+    id = Column(Integer, primary_key=True)
+    cr_id = Column(Integer, ForeignKey('change_requests.id'), nullable=False)
+    kind = Column(String(20), nullable=False)
+    filename = Column(String(255), nullable=False)
+    data = Column(LargeBinary().with_variant(LONGBLOB(), 'mysql'), nullable=False)
+    version = Column(Integer, nullable=False)
+    uploaded_by = Column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=now)
+
+
+class CRUpload(BaseModel):
+    kind: Literal['change_form', 'runbook', 'checklist']
+    filename: str = Field(min_length=1, max_length=255)
+    data: str = Field(max_length=14000000)
+
+
+def file_list(session, cr_id):
+    return [dict(id=f.id,kind=f.kind,filename=f.filename,size=len(f.data),version=f.version,
+        created_at=f.created_at) for f in session.scalars(select(CRFile).where(CRFile.cr_id==cr_id).order_by(CRFile.id))]
+
+
+def latest_files(session, cr_id):
+    return {f['kind']: f for f in file_list(session,cr_id)}
+
+
 class CRContent(BaseModel):
     background: str = Field(default='', max_length=20000)
     scope: str = Field(default='', max_length=20000)
@@ -69,11 +100,12 @@ class CRContent(BaseModel):
 class CRSave(BaseModel):
     version: int = Field(ge=1)
     content: CRContent
+    uploads: list[CRUpload] = Field(default_factory=list, max_length=3)
 
 
 class CRAction(BaseModel):
     version: int = Field(ge=1)
-    action: Literal['submit', 'support', 'approve', 'return']
+    action: Literal['submit', 'support', 'approve', 'return', 'comment']
     reason: str = Field(default='', max_length=20000)
 
 
@@ -88,6 +120,7 @@ def serialize_cr(row, session, detail=False):
     result = {c.name: getattr(row, c.name) for c in ChangeRequest.__table__.columns}
     result['content'] = json.loads(row.content)
     result['document_names'] = names(row.number, result['content'].get('description',''))
+    result['files'] = list(latest_files(session,row.id).values())
     result['owner'] = session.get(User, row.owner_id).name
     if detail:
         result['history'] = [dict(id=h.id, action=h.action, reason=h.reason,
@@ -98,8 +131,10 @@ def serialize_cr(row, session, detail=False):
 
 
 def audit(session, row, user, action, reason=''):
+    snapshot=json.loads(row.content)
+    snapshot['_files']=file_list(session,row.id)
     session.add(CRHistory(cr_id=row.id, actor_id=user.id, action=action,
-        reason=reason, version=row.version, snapshot=row.content))
+        reason=reason, version=row.version, snapshot=json.dumps(snapshot,default=str)))
 
 
 def mutate(session, row, version, **values):
@@ -123,11 +158,41 @@ def register_changes(app):
         staff(user)
         if kind not in ('change_form','runbook','checklist'):
             raise HTTPException(404, 'Unknown document')
-        data=serialize_cr(read_cr(session,cr_id),session,True)
-        payload=export_doc(data,data['history']) if kind=='change_form' else export_xlsx(data,kind)
-        filename=data['document_names'][kind]
+        row=read_cr(session,cr_id)
+        data=serialize_cr(row,session,True)
+        current=latest_files(session,cr_id).get(kind)
+        if not current: raise HTTPException(404, 'No completed document uploaded yet')
+        file=session.get(CRFile,current['id'])
+        filename=file.filename
         mime='application/vnd.openxmlformats-officedocument.'+('wordprocessingml.document' if kind=='change_form' else 'spreadsheetml.sheet')
-        return Response(payload,media_type=mime,headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(filename,safe=''), 'Cache-Control':'no-store'})
+        return Response(file.data,media_type=mime,headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(filename,safe=''), 'Cache-Control':'no-store'})
+
+    @app.get('/api/changes/{cr_id}/templates/{kind}')
+    def template_download(cr_id:int,kind:str,user:User=Depends(current_user),session:Session=Depends(db)):
+        staff(user)
+        if kind not in ('change_form','runbook','checklist'):raise HTTPException(404,'Unknown template')
+        data=serialize_cr(read_cr(session,cr_id),session,True)
+        payload=export_doc(data,[]) if kind=='change_form' else export_xlsx(data,kind)
+        return Response(payload,media_type='application/octet-stream',headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(data['document_names'][kind],safe=''),'Cache-Control':'no-store'})
+
+    @app.get('/api/changes/{cr_id}/files/{file_id}')
+    def historic_download(cr_id:int,file_id:int,user:User=Depends(current_user),session:Session=Depends(db)):
+        staff(user)
+        read_cr(session,cr_id)
+        file=session.get(CRFile,file_id)
+        if not file or file.cr_id!=cr_id:raise HTTPException(404,'File not found')
+        return Response(file.data,media_type='application/octet-stream',headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(file.filename,safe=''),'Cache-Control':'no-store'})
+
+    @app.post('/api/changes/{cr_id}/delete',dependencies=[Depends(write_guard)])
+    def delete_change(cr_id:int,body:CRAction,user:User=Depends(current_user),session:Session=Depends(db)):
+        if user.role!='admin':raise HTTPException(403,'Administrator access required')
+        row=read_cr(session,cr_id)
+        mutate(session,row,body.version)
+        session.execute(delete(CRFile).where(CRFile.cr_id==cr_id))
+        session.execute(delete(CRHistory).where(CRHistory.cr_id==cr_id))
+        session.delete(row)
+        session.commit()
+        return {'ok':True}
 
     @app.get('/api/changes')
     def list_changes(user: User=Depends(current_user), session: Session=Depends(db)):
@@ -178,7 +243,33 @@ def register_changes(app):
             raise HTTPException(422, 'Deployment times must include a timezone')
         if start and end and end < start:
             raise HTTPException(422, 'Deployment end must not precede start')
-        mutate(session, row, body.version, content=body.content.model_dump_json())
+        decoded=[]
+        seen=set()
+        for upload in body.uploads:
+            if upload.kind in seen:raise HTTPException(422,'One file per document type')
+            seen.add(upload.kind)
+            extension='.docx' if upload.kind=='change_form' else '.xlsx'
+            if not upload.filename.lower().endswith(extension):raise HTTPException(422,'Expected '+extension)
+            try:
+                data=base64.b64decode(upload.data,validate=True)
+                if not 0<len(data)<=10*1024*1024:raise ValueError()
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    required='word/document.xml' if upload.kind=='change_form' else 'xl/workbook.xml'
+                    if sum(f.file_size for f in archive.infolist())>100*1024*1024:raise ValueError()
+                    if required not in archive.namelist() or archive.testzip() is not None:raise ValueError()
+            except (ValueError,binascii.Error,zipfile.BadZipFile,RuntimeError):
+                raise HTTPException(422,'Invalid or oversized Office document (maximum 10 MB)')
+            decoded.append((upload,data))
+        # Retain earlier content fields; the new portal edits only background and scope.
+        merged=json.loads(row.content)
+        merged.update(body.content.model_dump(mode='json',exclude_unset=True))
+        mutate(session,row,body.version,content=json.dumps(merged))
+        for upload,data in decoded:
+            safe_name=upload.filename.replace('\\','/').split('/')[-1]
+            safe_name=''.join(ch for ch in safe_name if ord(ch)>=32 and ord(ch)!=127)
+            session.add(CRFile(cr_id=row.id,kind=upload.kind,filename=safe_name,data=data,
+                version=row.version,uploaded_by=user.id))
+        session.flush()
         audit(session, row, user, 'saved')
         session.commit()
         return serialize_cr(row, session, True)
@@ -189,22 +280,21 @@ def register_changes(app):
         row = read_cr(session, cr_id)
         if row.version != body.version:
             raise HTTPException(409, 'CR changed. Reload before reviewing.')
+        if body.action=='comment':
+            if not body.reason.strip():raise HTTPException(422,'Comment is required')
+            mutate(session,row,body.version)
+            audit(session,row,user,'comment',body.reason.strip())
+            session.commit()
+            return serialize_cr(row,session,True)
         if body.action=='submit':
             if user.id!=row.owner_id and user.role!='admin':
                 raise HTTPException(403, 'Only the submitting Infra or Admin can submit')
             if row.status!='In-progress':
                 raise HTTPException(409, 'CR is not In-progress')
             content = json.loads(row.content)
-            required = ['background','scope','environment','description','deployment_start','deployment_end',
-                        'impact']
-            missing = [k for k in required if not str(content.get(k) or '').strip()]
-            if missing:
-                raise HTTPException(422, 'Complete before submitting: '+', '.join(missing))
-            if content.get('forms'):
-                try: validate_forms(content['forms'], submission=True)
-                except ValueError as error: raise HTTPException(422, str(error))
-            elif any(not content.get(k,'').strip() for k in ('change_form','runbook','checklist')):
-                raise HTTPException(422, 'Complete all three forms before submitting')
+            missing=[k for k in ('background','scope') if not content.get(k,'').strip()]
+            missing += [k for k in ('change_form','runbook','checklist') if k not in latest_files(session,row.id)]
+            if missing:raise HTTPException(422,'Complete before submitting: '+', '.join(missing))
             target = 'Pending Review'
         else:
             required_role = {'Pending Review':'infra_tl', 'Pending Approval':'infra_manager'}.get(row.status)
