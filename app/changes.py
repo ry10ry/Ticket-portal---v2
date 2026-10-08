@@ -133,6 +133,7 @@ def serialize_cr(row, session, detail=False):
 def audit(session, row, user, action, reason=''):
     snapshot=json.loads(row.content)
     snapshot['_files']=file_list(session,row.id)
+    snapshot['_actor']={'name':user.name,'email':user.email,'role':user.role}
     session.add(CRHistory(cr_id=row.id, actor_id=user.id, action=action,
         reason=reason, version=row.version, snapshot=json.dumps(snapshot,default=str)))
 
@@ -148,6 +149,23 @@ def mutate(session, row, version, **values):
 
 
 def register_changes(app):
+    @app.get('/api/changes/{cr_id}/istd-email')
+    def istd_email(cr_id:int,user:User=Depends(current_user),session:Session=Depends(db)):
+        staff(user)
+        from app.cr_email import current_approval_cycle,draft_message
+        row=read_cr(session,cr_id)
+        history=session.scalars(select(CRHistory).where(CRHistory.cr_id==cr_id).order_by(CRHistory.id)).all()
+        submission,support,approval,file_ids=current_approval_cycle(row,history)
+        files=[]
+        for kind in ('change_form','runbook','checklist'):
+            file=session.get(CRFile,file_ids[kind])
+            if not file or file.cr_id!=row.id or file.kind!=kind:
+                raise HTTPException(409,'Approved document is no longer available')
+            files.append(file)
+        identities={h.actor_id:session.get(User,h.actor_id) for h in (support,approval)}
+        payload,filename=draft_message(row,submission,support,approval,files,identities)
+        return Response(payload,media_type='message/rfc822',headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(filename,safe=''),'Cache-Control':'no-store'})
+
     @app.get('/api/changes/forms/schema')
     def form_schema(user: User=Depends(current_user)):
         staff(user)

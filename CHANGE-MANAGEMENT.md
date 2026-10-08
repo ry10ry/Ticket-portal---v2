@@ -25,6 +25,16 @@ docker compose -f compose.yaml -f compose.override.yaml -f compose.ssl.yaml rest
 
 Use the actual HTTPS service name from compose.ssl.yaml if it differs from proxy. Refresh the browser with Ctrl+F5.
 
-Seven tests passed on SQLite and a separate empty MySQL database, covering existing fault workflows, immediate creation, uploads/downloads, access control, comments, return/resubmission, file history, concurrent numbering and Admin deletion. Chromium exercised the complete create/close/reopen/download/upload/comment/support/approve/delete UI flow. Tests must use disposable databases, never business data.
+The upload release passed seven tests on SQLite and a separate empty MySQL database, covering existing fault workflows, immediate creation, uploads/downloads, access control, comments, return/resubmission, file history, concurrent numbering and Admin deletion. Chromium exercised the complete create/close/reopen/download/upload/comment/support/approve/delete UI flow. Tests must use disposable databases, never business data.
 
 Service Management is not yet implemented. The earlier UPDATE-CR-TEMPLATES.md describes the superseded online-form release; this document describes the current workflow.
+
+## ISTD email draft
+
+After the current submission has TL Support and Manager Approval, Approved CRs offer Download ISTD Email Draft (.eml). The draft includes Background / Reason for Change, Scope of Change, Singapore-time support/approval records, three exact documents from the approved revision, and a separate support/approval text record. Receipts identify actual actors (including Admin overrides); new audit snapshots capture identity at the time of the action.
+
+The backend rejects incomplete or stale approval cycles, and never substitutes approval from before a return/resubmission. No email is sent by the portal. Recipients and sender are left for the user to select in Outlook. The EML has X-Unsent: 1; support for opening it directly as an editable draft depends on Outlook version. If Outlook opens it in reading mode, use Forward to create an editable message and verify the attachments before sending. Outlook itself has not been exercised in this Linux environment.
+
+The email update passed nine tests on SQLite, including attachment bytes and approval-version checks, and Chromium downloaded and validated the actual EML.
+
+For this email update, replace app/changes.py and app/static/changes.js and add app/cr_email.py. No new dependency or database migration is required. Rebuild the application image, then refresh the browser. Service Request notifications remain pending the Service Request module.

@@ -1,4 +1,6 @@
 import base64
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
@@ -15,6 +17,8 @@ def test_upload_review_return_delete():
    email='cr-'+role+'@example.com';assert a.post('/api/users',json=dict(name=role,email=email,role=role,password='TestPassword123!'),headers=H).status_code==200;login(c,email)
   assert q.get('/api/changes').status_code==403
   r=i.post('/api/changes',json={},headers=H).json();path='/api/changes/'+str(r['id']);number=r['number']
+  assert i.get(path+'/istd-email').status_code==409
+  assert q.get(path+'/istd-email').status_code==403
   assert r['status']=='In-progress' and i.get('/api/changes').json()['counts']['In-progress']==1
   def act(c,action,reason=''):
    return c.post(path+'/actions',json=dict(version=r['version'],action=action,reason=reason),headers=H)
@@ -43,6 +47,19 @@ def test_upload_review_return_delete():
   r=act(i,'submit').json();r=act(t,'support').json();assert r['status']=='Pending Approval'
   r=act(m,'return','Clarify plan').json();assert r['status']=='In-progress'
   r=act(i,'submit').json();r=act(t,'support').json();r=act(m,'approve').json();assert r['status']=='Approved' and r['number']==number
+  response=i.get(path+'/istd-email');assert response.status_code==200
+  message=BytesParser(policy=policy.default).parsebytes(response.content)
+  assert message['X-Unsent']=='1' and message['To'] is None
+  assert number.replace('CR# ','CR#') in message['Subject']
+  attachments=list(message.iter_attachments());assert len(attachments)==4
+  for f in data:
+   part=next(p for p in attachments if p.get_filename()==f['filename'])
+   assert part.get_payload(decode=True)==base64.b64decode(f['data'])
+  body=message.get_body(preferencelist=('plain',)).get_content()
+  assert 'MOMCC Infra TL Support' in body and 'MOMCC Infra Manager Approval' in body
+  assert 'SGT' in body and 'cr-infra_tl@example.com' in body and 'cr-infra_manager@example.com' in body
+  assert 'Please update runbook' not in body
+  assert all(h['content'].get('_actor') for h in r['history'])
   assert i.post(path+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==403
   assert a.post(path+'/delete',json=dict(version=r['version']-1,action='comment'),headers=H).status_code==409
   assert a.post(path+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==200
