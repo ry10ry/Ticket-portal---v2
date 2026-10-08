@@ -570,3 +570,6 @@ register_changes(app)
 
 from app.services import register_services
 register_services(app)
+
+from app.internal_views import register_internal_views
+register_internal_views(app)

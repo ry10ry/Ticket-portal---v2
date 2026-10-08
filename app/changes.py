@@ -48,6 +48,25 @@ class CRHistory(Base):
     created_at = Column(DateTime, nullable=False, default=now)
 
 
+class CRNotification(Base):
+    __tablename__='cr_notifications'
+    id=Column(Integer,primary_key=True)
+    cr_id=Column(Integer,ForeignKey('change_requests.id'),nullable=False)
+    user_id=Column(Integer,ForeignKey('users.id'),nullable=False)
+    text=Column(String(500),nullable=False)
+    created_at=Column(DateTime,nullable=False,default=now)
+    read_at=Column(DateTime)
+
+
+def notify_change(session,row,user,action,reason=''):
+    role='infra_tl' if action=='submit' else 'infra_manager' if action=='support' else None
+    recipients=[row.owner_id] if action in ('return','approve','comment') else []
+    roles=[role,'admin'] if role else ['admin']
+    recipients += [u.id for u in session.scalars(select(User).where(User.role.in_(roles)))]
+    for id in set(recipients)-{user.id}:
+        session.add(CRNotification(cr_id=row.id,user_id=id,text=row.number+' — '+action.capitalize()+(' — '+reason[:200] if reason else '')))
+
+
 class CRFile(Base):
     __tablename__ = 'cr_files'
     id = Column(Integer, primary_key=True)
@@ -207,6 +226,7 @@ def register_changes(app):
         row=read_cr(session,cr_id)
         mutate(session,row,body.version)
         session.execute(delete(CRFile).where(CRFile.cr_id==cr_id))
+        session.execute(delete(CRNotification).where(CRNotification.cr_id==cr_id))
         session.execute(delete(CRHistory).where(CRHistory.cr_id==cr_id))
         session.delete(row)
         session.commit()
@@ -302,6 +322,7 @@ def register_changes(app):
             if not body.reason.strip():raise HTTPException(422,'Comment is required')
             mutate(session,row,body.version)
             audit(session,row,user,'comment',body.reason.strip())
+            notify_change(session,row,user,'comment',body.reason.strip())
             session.commit()
             return serialize_cr(row,session,True)
         if body.action=='submit':
@@ -334,5 +355,6 @@ def register_changes(app):
                 raise HTTPException(409, 'Invalid action for current stage')
         mutate(session, row, body.version, status=target)
         audit(session, row, user, body.action, body.reason.strip())
+        notify_change(session,row,user,body.action,body.reason.strip())
         session.commit()
         return serialize_cr(row, session, True)
