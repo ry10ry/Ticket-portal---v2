@@ -1,6 +1,6 @@
 /* Internal change management. Server enforces every role and transition. */
 let crCurrent, crFilter='', crFormSchema;
-const crLabels={infra:'MOMCC Infra',infra_tl:'Infra TL',infra_manager:'Infra Manager',admin:'Administrator'};
+const crLabels={infra:'MOMCC Infra',infra_tl:'MOMCC Infra TL',infra_manager:'MOMCC Infra Manager',admin:'Administrator'};
 const crCanEdit=r=>r.status==='In-progress'&&(r.owner_id===me.id||me.role==='admin');
 function crDate(value){return value?new Date(value).toLocaleString('en-SG',{timeZone:'Asia/Singapore',dateStyle:'medium',timeStyle:'short'}):'—'}
 function crLocal(value){if(!value)return '';return new Date(new Date(value).getTime()+8*3600000).toISOString().slice(0,16)}
