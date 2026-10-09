@@ -11,3 +11,6 @@
 .cr-template{border:1px solid #dde5f2;border-radius:8px;padding:18px;margin:16px 0}.cr-template>summary{font-weight:700;cursor:pointer;overflow-wrap:anywhere}.cr-template .grid{margin-top:16px}.runbook-grid{min-width:1800px}.runbook-grid td{padding:8px}.runbook-grid input,.runbook-grid textarea{min-width:100px}.cr-template details{margin:20px 0}
 
 .sr-stats{grid-template-columns:repeat(3,1fr)}#srDialog fieldset{border:0;padding:0;min-width:0}#srDialog fieldset:disabled input,#srDialog fieldset:disabled textarea{color:#24324b;background:#f8faff;opacity:1}.sr-file{display:grid;gap:10px;padding:14px;margin:14px 0;background:#f7f9fd;border-radius:8px}.sr-preview{display:block;max-width:100%;max-height:420px;object-fit:contain;border:1px solid #dce3ee;border-radius:6px}.sr-file .check-label input{width:auto}@media(max-width:600px){.sr-stats{grid-template-columns:1fr}}
+
+/* Request dashboards share Fault Ticket typography and status badges. */
+button.stat{text-align:left;font-weight:400}.sInprogress,.sInProgress{background:#edf2fc;color:#335689}.sPendingReview,.sPendingApproval{background:#fff4dc;color:#926418}.sApproved{background:#e8f6f1;color:#22715e}.request-empty{padding:30px;text-align:center;color:#6c7990}

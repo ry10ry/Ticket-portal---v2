@@ -22,7 +22,7 @@ $('#createForm').onsubmit=async e=>{e.preventDefault();try{const t=await api('/t
 $('#rows').onclick=e=>{let tr=e.target.closest('[data-id]');if(tr)openTicket(tr.dataset.id).catch(x=>toast(x.message))};$('#rows').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.target.click()}};
 $('#actionForm').onsubmit=async e=>{e.preventDefault();let b;try{b=await formBody(e.target)}catch(x){toast(x.message);return}b.minutes=Number(b.minutes);b.assignee_id=b.action==='assign'?Number(b.assignee_id):null;if(me.role==='requester'||(me.role==='infra'&&selected.status==='Closed'))b.severity=null;try{await api('/tickets/'+selected.id+'/actions',b);$('#detailDialog').close();e.target.reset();await refresh();toast('Ticket updated')}catch(x){toast(x.message)}};
 $('.tabs').onclick=e=>{if(e.target.dataset.tab){tab=e.target.dataset.tab;renderEntries()}};
-$('#refresh').onclick=()=>refresh().catch(x=>toast(x.message));$('#navTickets').onclick=()=>{showView('tickets');$('#heading').textContent='Fault tickets'};
+$('#refresh').onclick=()=>refresh().catch(x=>toast(x.message));$('#navTickets').onclick=()=>{showView('tickets');$('#heading').textContent='Fault Ticket'};
 async function openNotifications(category='fault'){
  try{
   if(me.role==='requester')category='fault';
