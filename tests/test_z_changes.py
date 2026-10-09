@@ -16,7 +16,7 @@ def test_upload_review_return_delete():
   for c,role in [(i,'infra'),(t,'infra_tl'),(m,'infra_manager'),(q,'requester')]:
    email='cr-'+role+'@example.com';assert a.post('/api/users',json=dict(name=role,email=email,role=role,password='TestPassword123!'),headers=H).status_code==200;login(c,email)
   assert q.get('/api/changes').status_code==403
-  r=i.post('/api/changes',json={},headers=H).json();path='/api/changes/'+str(r['id']);number=r['number']
+  r=i.post('/api/changes',json={'cr_date':'2026-11-01'},headers=H).json();path='/api/changes/'+str(r['id']);number=r['number']
   assert i.get(path+'/istd-email').status_code==409
   assert q.get(path+'/istd-email').status_code==403
   assert r['status']=='In-progress' and i.get('/api/changes').json()['counts']['In-progress']==1
@@ -106,6 +106,26 @@ def test_upload_review_return_delete():
 def test_concurrent_creation_keeps_unique_numbers():
  def create(_):
   with TestClient(app) as c:
-   login(c,'cr-infra@example.com');r=c.post('/api/changes',json={},headers=H);assert r.status_code==200;return r.json()['number']
+   login(c,'cr-infra@example.com');r=c.post('/api/changes',json={'cr_date':'2026-11-01'},headers=H);assert r.status_code==200;return r.json()['number']
  with ThreadPoolExecutor(max_workers=5) as pool:numbers=list(pool.map(create,range(10)))
  assert len(set(numbers))==10
+
+
+def test_selected_date_controls_number_and_independent_sequence():
+ with TestClient(app) as c:
+  login(c,'admin@example.com')
+  for value in [None,'2026-02-30','not-a-date']:
+   body={} if value is None else {'cr_date':value}
+   assert c.post('/api/changes',json=body,headers=H).status_code==422
+  ids=[]
+  for day,expected in [('2026-10-16','20261016-01'),('2026-10-16','20261016-02'),('2026-10-17','20261017-01')]:
+   response=c.post('/api/changes',json={'cr_date':day},headers=H)
+   assert response.status_code==200
+   r=response.json();ids.append(r)
+   assert r['number']=='CR# MOMCC-'+expected and r['status']=='In-progress'
+   assert c.get('/api/changes/'+str(r['id'])).json()['number']==r['number']
+  for r in ids:
+   assert c.post('/api/changes/'+str(r['id'])+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==200
+  r=c.post('/api/changes',json={'cr_date':'2026-10-16'},headers=H).json()
+  assert r['number']=='CR# MOMCC-20261016-03'
+  assert c.post('/api/changes/'+str(r['id'])+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==200

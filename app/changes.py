@@ -5,7 +5,7 @@ import binascii
 import io
 import zipfile
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from typing import Literal
 from fastapi import Depends, HTTPException
@@ -115,6 +115,10 @@ class CRContent(BaseModel):
             raise ValueError('Combined form content is too large')
         validate_forms(value)
         return value
+
+
+class CRCreate(BaseModel):
+    cr_date: date
 
 
 class CRSave(BaseModel):
@@ -249,9 +253,9 @@ def register_changes(app):
         return {'counts': counts, 'items': [serialize_cr(r, session) for r in rows]}
 
     @app.post('/api/changes', dependencies=[Depends(write_guard)])
-    def create_change(user: User=Depends(current_user), session: Session=Depends(db)):
+    def create_change(body: CRCreate, user: User=Depends(current_user), session: Session=Depends(db)):
         staff(user)
-        day = datetime.now(ZoneInfo('Asia/Singapore')).strftime('%Y%m%d')
+        day = body.cr_date.strftime('%Y%m%d')
         # Upsert the date row, then increment under its transaction lock.
         if session.bind.dialect.name == 'mysql':
             from sqlalchemy.dialects.mysql import insert

@@ -51,3 +51,9 @@ Internal Manager Approval leaves the CR at Approved. Infra downloads the ISTD em
 Close CR becomes available only after evidence is uploaded, and asks the user to confirm that ISTD approved the change. The backend independently enforces Approved status, owner/Admin access, current revision and the existence of evidence. Closing records the actor/time and changes status to Closed; uploads are then disabled. Closed CRs remain in Total CR and can be found with the Closed status filter. The proof, history and original ISTD email draft remain available to internal staff. Evidence upload and closure notify Admin and the owner, excluding the actor. Admin can still delete a Closed CR.
 
 Replace app/changes.py, app/cr_email.py, app/static/changes.js and app/static/index.html, rebuild the Docker application and refresh the browser. No new dependencies or database migration are required.
+
+## Selected CR numbering date
+
+Raise Change Request now opens a required CR Date calendar before creating the record. Confirming the selected date calls POST /api/changes with cr_date in YYYY-MM-DD format and allocates CR# MOMCC-YYYYMMDD-NN using that date's independent transactional counter. Missing/invalid dates are rejected. Cancelling the date picker creates no record; after confirmation, closing the CR editor retains the In-progress record and its assigned number. Existing CR numbers remain unchanged, and counters are not reset after deletion. The selected date is shown in the CR detail window. Creation timestamps and monthly reports continue to reflect actual creation time.
+
+Replace app/changes.py, app/static/changes.js and app/static/index.html, rebuild Docker and refresh the browser. No database migration is required; the existing per-date sequence table is reused.

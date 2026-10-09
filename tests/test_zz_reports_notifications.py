@@ -13,7 +13,7 @@ def login(c,email):assert c.post('/api/login',json={'email':email,'password':'Te
 def test_cr_sr_combined_notifications_and_separate_fault_reads():
  with TestClient(app) as infra,TestClient(app) as tl,TestClient(app) as manager,TestClient(app) as requester:
   login(infra,'cr-infra@example.com');login(tl,'cr-infra_tl@example.com');login(manager,'cr-infra_manager@example.com');login(requester,'cr-requester@example.com')
-  r=infra.post('/api/changes',json={},headers=H).json();p='/api/changes/'+str(r['id'])
+  r=infra.post('/api/changes',json={'cr_date':'2026-11-01'},headers=H).json();p='/api/changes/'+str(r['id'])
   r=infra.post(p+'/save',json=dict(version=r['version'],content=dict(background='Reason',scope='Scope'),uploads=uploads()),headers=H).json()
   r=infra.post(p+'/actions',json=dict(version=r['version'],action='submit'),headers=H).json()
   assert any(n['kind']=='CR' and n['record_id']==r['id'] for n in tl.get('/api/internal/notifications').json())
