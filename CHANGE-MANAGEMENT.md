@@ -46,7 +46,7 @@ The draft body now contains Dear ISTD, bold Background / Reason for Change and S
 
 ## ISTD approval evidence and closure
 
-Internal Manager Approval leaves the CR at Approved. Infra downloads the ISTD email draft and sends it manually in Outlook. After receiving ISTD approval, the submitting Infra or Admin uploads the approval Email or supporting document using Upload Approval Evidence. Accepted formats: EML, MSG, PDF, DOCX, PNG and JPEG, maximum 10 MB each. Earlier proof versions remain in history when replaced. File format validation checks the uploaded format; the submitting user verifies that the content records ISTD approval.
+Internal Manager Approval leaves the CR at Approved. Infra downloads the ISTD email draft and sends it manually in Outlook. After receiving ISTD approval, the submitting Infra or Admin uploads the approval Email or supporting document using Upload Approval Evidence. Accepted formats: EML, MSG, PDF, DOCX, XLSX, XLS, PNG and JPEG, maximum 10 MB each. Earlier proof versions remain in history when replaced. File format validation checks the uploaded format; the submitting user verifies that the content records ISTD approval.
 
 Close CR becomes available only after evidence is uploaded, and asks the user to confirm that ISTD approved the change. The backend independently enforces Approved status, owner/Admin access, current revision and the existence of evidence. Closing records the actor/time and changes status to Closed; uploads are then disabled. Closed CRs remain in Total CR and can be found with the Closed status filter. The proof, history and original ISTD email draft remain available to internal staff. Evidence upload and closure notify Admin and the owner, excluding the actor. Admin can still delete a Closed CR.
 

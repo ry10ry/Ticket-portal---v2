@@ -286,8 +286,8 @@ def register_changes(app):
         safe_name=body.filename.replace('\\','/').split('/')[-1]
         safe_name=''.join(ch for ch in safe_name if ord(ch)>=32 and ord(ch)!=127)
         extension=Path(safe_name).suffix.lower()
-        if extension not in ('.eml','.msg','.pdf','.docx','.png','.jpg','.jpeg'):
-            raise HTTPException(422,'Use an Email (.eml/.msg), PDF, DOCX, PNG or JPEG approval document')
+        if extension not in ('.eml','.msg','.pdf','.docx','.xlsx','.xls','.png','.jpg','.jpeg'):
+            raise HTTPException(422,'Use an Email (.eml/.msg), PDF, DOCX, Excel (.xlsx/.xls), PNG or JPEG supporting document')
         try:
             data=base64.b64decode(body.data,validate=True)
             if not 0<len(data)<=10*1024*1024:raise ValueError()
@@ -296,11 +296,12 @@ def register_changes(app):
                 from email import policy
                 message=BytesParser(policy=policy.default).parsebytes(data)
                 valid=bool(message.get('From') and message.get('Subject') and not message.defects)
-            elif extension=='.docx':
+            elif extension in ('.docx','.xlsx'):
                 with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                    valid=sum(f.file_size for f in archive.infolist())<=100*1024*1024 and 'word/document.xml' in archive.namelist() and archive.testzip() is None
+                    required='word/document.xml' if extension=='.docx' else 'xl/workbook.xml'
+                    valid=sum(f.file_size for f in archive.infolist())<=100*1024*1024 and required in archive.namelist() and archive.testzip() is None
             else:
-                signatures={'.msg':b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1','.pdf':b'%PDF-', '.png':b'\x89PNG\r\n\x1a\n', '.jpg':b'\xff\xd8\xff','.jpeg':b'\xff\xd8\xff'}
+                signatures={'.xls':b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1','.msg':b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1','.pdf':b'%PDF-', '.png':b'\x89PNG\r\n\x1a\n', '.jpg':b'\xff\xd8\xff','.jpeg':b'\xff\xd8\xff'}
                 valid=data.startswith(signatures[extension])
             if not valid:raise ValueError()
         except (ValueError,binascii.Error,zipfile.BadZipFile,RuntimeError):

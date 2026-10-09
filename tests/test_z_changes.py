@@ -78,6 +78,11 @@ def test_upload_review_return_delete():
   assert i.post(path+'/istd-evidence',json={**evidence,'filename':'bad.exe'},headers=H).status_code==422
   assert i.post(path+'/istd-evidence',json={**evidence,'data':base64.b64encode(b'not an email').decode()},headers=H).status_code==422
   assert i.post(path+'/istd-evidence',json={**evidence,'version':r['version']-1},headers=H).status_code==409
+  workbook=next(f for f in data if f['kind']=='runbook')
+  assert i.post(path+'/istd-evidence',json={**evidence,'filename':'invalid.xlsx'},headers=H).status_code==422
+  excel=i.post(path+'/istd-evidence',json={**evidence,'filename':'Completed.xlsx','data':workbook['data']},headers=H)
+  assert excel.status_code==200
+  r=excel.json();evidence['version']=r['version']
   r=i.post(path+'/istd-evidence',json=evidence,headers=H).json()
   assert r['status']=='Approved'
   proof=next(f for f in r['files'] if f['kind']=='istd_approval')
