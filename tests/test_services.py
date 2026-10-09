@@ -16,8 +16,8 @@ def test_sr_simple_approval_preview_notifications_and_return():
    email='sr-'+role+'@example.com';assert admin.post('/api/users',json=dict(name=role,email=email,role=role,password=P),headers=H).status_code==200;login(c,email)
   assert requester.get('/api/services').status_code==403
   assert requester.get('/api/services/notifications').status_code==403
-  r=infra.post('/api/services',json={},headers=H).json();path='/api/services/'+str(r['id']);number=r['number']
-  assert re.fullmatch('SR#MOMCC-'+datetime.now(ZoneInfo('Asia/Singapore')).strftime('%Y%m%d')+'-\\d{2,}',number)
+  r=infra.post('/api/services',json={'sr_date':'2026-11-01'},headers=H).json();path='/api/services/'+str(r['id']);number=r['number']
+  assert re.fullmatch('SR#MOMCC-'+'20261101'+'-\\d{2,}',number)
   assert r['status']=='In-progress'
   assert infra.get('/api/services').json()['counts']=={'Submitted SR':0,'Pending Approval':0,'Total SR':1}
   def act(c,action,comment=''):return c.post(path+'/actions',json=dict(version=r['version'],action=action,comment=comment),headers=H)
@@ -47,19 +47,19 @@ def test_sr_simple_approval_preview_notifications_and_return():
   infra.post('/api/services/notifications/read',json={},headers=H)
   assert all(n['read'] for n in infra.get('/api/services/notifications').json())
   # TL alone can approve the next independent SR without Manager involvement.
-  r=infra.post('/api/services',json={},headers=H).json();path='/api/services/'+str(r['id'])
+  r=infra.post('/api/services',json={'sr_date':'2026-11-01'},headers=H).json();path='/api/services/'+str(r['id'])
   r=infra.post(path+'/save',json=dict(version=r['version'],subject='Install software',description='Approved package'),headers=H).json()
   r=act(infra,'submit').json();r=act(tl,'approve').json();assert r['status']=='Approved'
 
 def test_sr_concurrent_numbers_and_self_approval():
  def create(_):
   with TestClient(app) as c:
-   login(c,'sr-infra@example.com');r=c.post('/api/services',json={},headers=H);assert r.status_code==200;return r.json()['number']
+   login(c,'sr-infra@example.com');r=c.post('/api/services',json={'sr_date':'2026-11-01'},headers=H);assert r.status_code==200;return r.json()['number']
  with ThreadPoolExecutor(max_workers=5) as pool:numbers=list(pool.map(create,range(10)))
  assert len(set(numbers))==10
  with TestClient(app) as tl,TestClient(app) as admin:
   login(tl,'sr-infra_tl@example.com');login(admin,'admin@example.com')
-  r=tl.post('/api/services',json={},headers=H).json();p='/api/services/'+str(r['id'])
+  r=tl.post('/api/services',json={'sr_date':'2026-11-01'},headers=H).json();p='/api/services/'+str(r['id'])
   r=tl.post(p+'/save',json=dict(version=r['version'],subject='Test',description='Own SR'),headers=H).json()
   r=tl.post(p+'/actions',json=dict(version=r['version'],action='submit'),headers=H).json()
   assert tl.post(p+'/actions',json=dict(version=r['version'],action='approve'),headers=H).status_code==403
@@ -72,7 +72,7 @@ def test_admin_sr_delete_cleans_files_history_notifications_and_keeps_sequence()
  from app.services import SRFile,SRHistory,SRNotification
  with TestClient(app) as admin,TestClient(app) as infra,TestClient(app) as tl,TestClient(app) as requester:
   login(admin,'admin@example.com');login(infra,'sr-infra@example.com');login(tl,'sr-infra_tl@example.com');login(requester,'sr-requester@example.com')
-  r=infra.post('/api/services',json={},headers=H).json();p='/api/services/'+str(r['id']);number=r['number']
+  r=infra.post('/api/services',json={'sr_date':'2026-11-01'},headers=H).json();p='/api/services/'+str(r['id']);number=r['number']
   r=infra.post(p+'/save',json=dict(version=r['version'],subject='Delete test',description='Temporary SR',uploads=[dict(filename='image.png',data=base64.b64encode(PNG).decode())]),headers=H).json();file_id=r['files'][0]['id']
   r=infra.post(p+'/actions',json=dict(version=r['version'],action='submit'),headers=H).json()
   for c in [infra,tl,requester]:assert c.post(p+'/delete',json=dict(version=r['version']),headers=H).status_code==403
@@ -82,5 +82,23 @@ def test_admin_sr_delete_cleans_files_history_notifications_and_keeps_sequence()
   assert admin.get(p).status_code==404 and admin.get(p+'/files/'+str(file_id)).status_code==404
   with Session(engine) as s:
    for model in [SRFile,SRHistory,SRNotification]:assert s.scalar(select(func.count()).select_from(model).where(model.sr_id==r['id']))==0
-  next_sr=infra.post('/api/services',json={},headers=H).json()
+  next_sr=infra.post('/api/services',json={'sr_date':'2026-11-01'},headers=H).json()
   assert int(next_sr['number'].rsplit('-',1)[1])>int(number.rsplit('-',1)[1])
+
+
+def test_sr_selected_date_numbering():
+ with TestClient(app) as c:
+  login(c,'admin@example.com')
+  for value in [None,'2026-02-30','invalid']:
+   assert c.post('/api/services',json={} if value is None else {'sr_date':value},headers=H).status_code==422
+  records=[]
+  for day,suffix in [('2026-10-16','20261016-01'),('2026-10-16','20261016-02'),('2026-10-17','20261017-01')]:
+   response=c.post('/api/services',json={'sr_date':day},headers=H);assert response.status_code==200
+   r=response.json();records.append(r)
+   assert r['number']=='SR#MOMCC-'+suffix and r['status']=='In-progress'
+   assert c.get('/api/services/'+str(r['id'])).json()['number']==r['number']
+  for r in records:
+   assert c.post('/api/services/'+str(r['id'])+'/delete',json={'version':r['version']},headers=H).status_code==200
+  r=c.post('/api/services',json={'sr_date':'2026-10-16'},headers=H).json()
+  assert r['number']=='SR#MOMCC-20261016-03'
+  assert c.post('/api/services/'+str(r['id'])+'/delete',json={'version':r['version']},headers=H).status_code==200

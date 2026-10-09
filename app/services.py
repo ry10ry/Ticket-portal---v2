@@ -1,6 +1,6 @@
 """Internal service requests with a single TL-or-Manager approval stage."""
 import base64,binascii
-from datetime import datetime
+from datetime import datetime,date
 from zoneinfo import ZoneInfo
 from typing import Literal
 from urllib.parse import quote
@@ -53,6 +53,9 @@ class SRNotification(Base):
     text=Column(String(500),nullable=False)
     created_at=Column(DateTime,nullable=False,default=now)
     read_at=Column(DateTime)
+class Create(BaseModel):
+    sr_date: date
+
 class Upload(BaseModel):
     filename:str=Field(min_length=1,max_length=255)
     data:str=Field(max_length=14000000)
@@ -110,8 +113,8 @@ def register_services(app):
         staff(u);rows=s.scalars(select(ServiceRequest).order_by(ServiceRequest.id.desc())).all()
         return dict(items=[serialize(s,r) for r in rows],counts={'Submitted SR':sum(r.first_submitted_at is not None for r in rows),'Pending Approval':sum(r.status=='Pending Approval' for r in rows),'Total SR':len(rows)})
     @app.post('/api/services',dependencies=[Depends(write_guard)])
-    def create(u:User=Depends(current_user),s:Session=Depends(db)):
-        staff(u);day=datetime.now(ZoneInfo('Asia/Singapore')).strftime('%Y%m%d')
+    def create(body:Create,u:User=Depends(current_user),s:Session=Depends(db)):
+        staff(u);day=body.sr_date.strftime('%Y%m%d')
         if s.bind.dialect.name=='mysql':
             from sqlalchemy.dialects.mysql import insert
             stmt=insert(SRSequence).values(day=day,value=0);s.execute(stmt.on_duplicate_key_update(day=stmt.inserted.day))

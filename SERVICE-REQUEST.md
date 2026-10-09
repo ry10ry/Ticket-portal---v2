@@ -50,3 +50,9 @@ Admin can delete any SR after the confirmation dialog. The operation removes the
 CR and SR details now close after a successful Save or Submit and refresh their list/Dashboard. Failed validation leaves the dialog open. Approval, return and comment operations keep their existing behavior.
 
 Replace app/services.py, app/static/services.js and app/static/changes.js, then rebuild web/scheduler and refresh the browser. No database migration or new dependency is needed. Fourteen tests passed on SQLite/MySQL, and Chromium verified successful-save/submit closure, failed-submit retention, and Admin deletion cancellation/confirmation.
+
+## Selected SR numbering date
+
+Raise Service Request opens a required SR Date calendar. Confirming creates an In-progress SR and allocates SR#MOMCC-YYYYMMDD-NN using the selected date's independent counter. POST /api/services now requires sr_date in YYYY-MM-DD format. Cancel before confirming creates no record; closing the editor after creation retains the SR. Existing numbers remain unchanged, and deletion does not reset numbering. Actual creation timestamps and monthly report date boundaries remain unchanged. The selected date is shown in the request detail window.
+
+Replace app/services.py, app/static/services.js and app/static/index.html, rebuild Docker and refresh the browser. No database migration or new dependencies are required.

@@ -21,7 +21,7 @@ def test_cr_sr_combined_notifications_and_separate_fault_reads():
   assert any(n['kind']=='CR' and n['record_id']==r['id'] for n in manager.get('/api/internal/notifications').json())
   r=manager.post(p+'/actions',json=dict(version=r['version'],action='approve'),headers=H).json()
   assert any(n['kind']=='CR' and n['record_id']==r['id'] for n in infra.get('/api/internal/notifications').json())
-  sr=infra.post('/api/services',json={},headers=H).json();sp='/api/services/'+str(sr['id'])
+  sr=infra.post('/api/services',json={'sr_date':'2026-11-01'},headers=H).json();sp='/api/services/'+str(sr['id'])
   sr=infra.post(sp+'/save',json=dict(version=sr['version'],subject='Test',description='Request'),headers=H).json()
   infra.post(sp+'/actions',json=dict(version=sr['version'],action='submit'),headers=H)
   ns=tl.get('/api/internal/notifications').json();assert {n['kind'] for n in ns}=={'CR','SR'}
@@ -40,7 +40,7 @@ def test_monthly_reports_singapore_boundaries_and_formula_escaping():
   login(admin,'admin@example.com');login(requester,'cr-requester@example.com')
   ids=[]
   for when in [datetime(2026,9,30,15,59,59),datetime(2026,9,30,16),datetime(2026,10,31,15,59,59),datetime(2026,10,31,16)]:
-   r=admin.post('/api/services',json={},headers=H).json()
+   r=admin.post('/api/services',json={'sr_date':'2026-11-01'},headers=H).json()
    admin.post('/api/services/'+str(r['id'])+'/save',json=dict(version=r['version'],subject='=SUM(1,1)',description='line1\nline2'),headers=H)
    with Session(engine) as s:s.get(ServiceRequest,r['id']).created_at=when;s.commit()
    ids.append(r['number'])
