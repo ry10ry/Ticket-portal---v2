@@ -66,3 +66,7 @@ A separate SR#MOMCC-... - Approval Record.txt attachment records the approver na
 The portal does not send email. To, Cc and From are blank. Open the EML in Outlook, add the customer recipients, review the content/screenshots/attachments and send manually. X-Unsent: 1 marks it as a draft; if Outlook opens it in reading mode, use Forward and verify the embedded pictures and attachments. Outlook itself is not tested in this Linux environment.
 
 Add app/sr_email.py. Replace app/services.py, app/static/services.js and app/static/index.html. Rebuild Docker, refresh with Ctrl+F5. No new dependency or database migration is required.
+
+### Email Draft heading and opening line
+
+The SR section is titled Email Draft. The plain/HTML email begins with “For your approval on clearance for access to NCS Hub Block C Level 4. Thank you.”, followed by the SR Description and screenshots. An exact matching Description is not repeated. Approval records and uploaded attachments remain included. Replace app/sr_email.py, app/static/services.js and app/static/index.html, rebuild and refresh.

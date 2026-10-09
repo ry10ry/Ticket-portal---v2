@@ -29,13 +29,18 @@ def current_approval(row, history, files):
     return cycle[0],approval
 
 
+INTRO='For your approval on clearance for access to NCS Hub Block C Level 4. Thank you.'
+
+
 def draft_message(row, submission, approval, files, actor, owner):
     msg=EmailMessage(policy=policy.SMTP)
     msg['Subject']=row.subject.replace('\r',' ').replace('\n',' ')
     msg['X-Unsent']='1'
-    msg.set_content(row.description)
+    description=row.description if row.description.strip()!=INTRO else ''
+    msg.set_content(INTRO+('\n\n'+description if description else ''))
     html='<html><body style="font-family:Arial,sans-serif;font-size:11pt;">'
-    html+='<p>'+escape(row.description).replace('\n','<br>')+'</p>'
+    html+='<p>'+escape(INTRO)+'</p>'
+    if description:html+='<p>'+escape(description).replace('\n','<br>')+'</p>'
     images=[f for f in files if f.mime in ('image/png','image/jpeg','image/gif','image/webp')]
     for f in images:
         html+=f'<p><img src="cid:sr-{row.id}-file-{f.id}@servicedesk" alt="{escape(f.filename,quote=True)}" style="max-width:100%;height:auto;"></p>'

@@ -30,7 +30,7 @@ def test_sr_customer_email_current_approval_files_screenshots_and_record():
   msg=BytesParser(policy=policy.default).parsebytes(response.content)
   assert msg['X-Unsent']=='1' and msg['To'] is None and msg['Cc'] is None and msg['From'] is None
   assert msg['Subject']=='MOMCC - Clearance for NCS Hub C4'
-  assert msg.get_body(preferencelist=('plain',)).get_content().replace('\r\n','\n').rstrip()==description
+  assert msg.get_body(preferencelist=('plain',)).get_content().replace('\r\n','\n').rstrip()=='For your approval on clearance for access to NCS Hub Block C Level 4. Thank you.\n\n'+description
   html=msg.get_body(preferencelist=('html',)).get_content()
   assert '<script>' not in html and '&lt;script&gt;' in html and '<br>' in html
   image=next(part for part in msg.walk() if part.get_content_type()=='image/png')
