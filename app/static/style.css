@@ -14,3 +14,5 @@
 
 /* Request dashboards share Fault Ticket typography and status badges. */
 button.stat{text-align:left;font-weight:400}.sInprogress,.sInProgress{background:#edf2fc;color:#335689}.sPendingReview,.sPendingApproval{background:#fff4dc;color:#926418}.sApproved{background:#e8f6f1;color:#22715e}.request-empty{padding:30px;text-align:center;color:#6c7990}
+
+.workflow-stage{border:1px solid #dce3ee;border-radius:8px;padding:16px;margin:16px 0}.workflow-stage legend{font-weight:600}

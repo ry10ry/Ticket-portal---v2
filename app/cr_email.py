@@ -19,19 +19,32 @@ def current_approval_cycle(row, history):
     if start is None:raise HTTPException(409,'Current submission record is missing')
     cycle=history[start:]
     if any(h.action=='return' for h in cycle):raise HTTPException(409,'CR was returned; a fresh review and approval is required')
-    support=next((h for h in cycle if h.action=='support'),None)
-    approval=next((h for h in cycle if h.action=='approve'),None)
-    if not support or not approval or support.id>=approval.id:
-        raise HTTPException(409,'Current TL Support and Manager Approval records are required')
-    def content(h):return {k:v for k,v in json.loads(h.snapshot).items() if not k.startswith('_')}
-    if content(support)!=content(approval) or content(approval)!=json.loads(row.content):
-        raise HTTPException(409,'Support and approval do not cover the current CR content')
-    # Only files captured in the actual approval revision may leave in the draft.
-    def files(h):return {f['kind']:f['id'] for f in json.loads(h.snapshot).get('_files',[])}
-    approved=files(approval)
-    if files(support)!=approved or set(approved)!=set(KINDS):
-        raise HTTPException(409,'All three uploaded documents must be covered by support and approval')
-    return cycle[0],support,approval,approved
+    from app.cr_workflow import stages_for
+    stages=stages_for(row)
+    decisions=[h for h in cycle if h.action in ('support','approve')]
+    if len(decisions)!=len(stages) or any(h.action!=stage['action'] for h,stage in zip(decisions,stages)):
+        raise HTTPException(409,'All configured review and approval stages must be completed')
+    def content(value):return {k:v for k,v in json.loads(value).items() if not k.startswith('_')}
+    expected=content(row.content)
+    def files(h):return {f['kind']:f['id'] for f in json.loads(h.snapshot).get('_files',[]) if f['kind'] in KINDS}
+    approved=files(decisions[-1])
+    for index,(h,stage) in enumerate(zip(decisions,stages)):
+        snapshot=json.loads(h.snapshot)
+        captured=snapshot.get('_stage_decision')
+        if captured and captured!={'index':index,**stage}:
+            raise HTTPException(409,'Approval record does not match the configured stage')
+        actor=snapshot.get('_actor')
+        if actor and actor['role'] not in (stage['role'],'admin'):
+            raise HTTPException(409,'Approval record has an invalid actor role')
+        if content(h.snapshot)!=expected or files(h)!=approved or set(approved)!=set(KINDS):
+            raise HTTPException(409,'Approvals do not cover the current content and three documents')
+    support=next((h for h in reversed(decisions) if h.action=='support'),None)
+    return cycle[0],support,decisions[-1],approved
+
+
+def approval_decisions(history):
+    start=next((i for i in range(len(history)-1,-1,-1) if history[i].action=='submit'),len(history))
+    return [h for h in history[start:] if h.action in ('support','approve')]
 
 
 def singapore_time(value):
@@ -39,7 +52,7 @@ def singapore_time(value):
     return value.astimezone(ZoneInfo('Asia/Singapore')).strftime('%d %b %Y, %I:%M %p SGT')
 
 
-def draft_message(row, submission, support, approval, files, identities):
+def draft_message(row, submission, support, approval, files, identities, decisions=None):
     number=clean_number(row.number);content=json.loads(approval.snapshot)
     lines=['Dear ISTD,','',
         'Background / Reason for Change:',content.get('background',''),'',
@@ -48,12 +61,16 @@ def draft_message(row, submission, support, approval, files, identities):
         'S/N | Environment | CR Number | Description | Deployment - Start Date/Time | Impact Assessment',
         f'1 |  | {number} |  |  | ']
     records=['Support and Approval Records:',number,'']
-    for label,h in [('MOMCC Infra TL Support',support),('MOMCC Infra Manager Approval',approval)]:
+    for h in (decisions if decisions is not None else [h for h in (support,approval) if h]):
+        stage=json.loads(h.snapshot).get('_stage_decision',{})
+        role=stage.get('role','infra_tl' if h.action=='support' else 'infra_manager')
+        role_name={'infra':'MOMCC Infra','infra_tl':'MOMCC Infra TL','infra_manager':'MOMCC Infra Manager','admin':'Administrator'}[role]
+        label=role_name+(' Support' if h.action=='support' else ' Approval')
         person=identities[h.actor_id]
         captured=json.loads(h.snapshot).get('_actor',{})
         name=captured.get('name',person.name);email=captured.get('email',person.email)
         role=captured.get('role',person.role)
-        records += [label,f'Name: {name}',f'Email: {email}',f'Role: '+{'infra_tl':'MOMCC Infra TL','infra_manager':'MOMCC Infra Manager','admin':'Administrator','infra':'MOMCC Infra'}.get(role,role),
+        records += [label,'Stage: '+stage.get('label',h.action.capitalize()),f'Name: {name}',f'Email: {email}',f'Role: '+{'infra_tl':'MOMCC Infra TL','infra_manager':'MOMCC Infra Manager','admin':'Administrator','infra':'MOMCC Infra'}.get(role,role),
             f'Date/Time: {singapore_time(h.created_at)}',f'Audit record: {h.id}; CR revision: {h.version}',
             'Comment: '+(h.reason or '(No comment recorded)'), '']
     records += ['Attached documents:']+[LABELS[f.kind]+': '+f.filename for f in files]

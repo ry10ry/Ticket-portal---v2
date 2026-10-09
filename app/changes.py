@@ -60,7 +60,9 @@ class CRNotification(Base):
 
 
 def notify_change(session,row,user,action,reason=''):
-    role='infra_tl' if action=='submit' else 'infra_manager' if action=='support' else None
+    from app.cr_workflow import current_stage
+    stage=current_stage(row)
+    role=stage['role'] if stage and action in ('submit','support','approve') else None
     recipients=[row.owner_id] if action in ('return','approve','comment','close','istd_evidence') else []
     roles=[role,'admin'] if role else ['admin']
     recipients += [u.id for u in session.scalars(select(User).where(User.role.in_(roles)))]
@@ -152,6 +154,9 @@ def serialize_cr(row, session, detail=False):
     result['document_names'] = names(row.number, result['content'].get('description',''))
     result['files'] = list(latest_files(session,row.id).values())
     result['owner'] = session.get(User, row.owner_id).name
+    from app.cr_workflow import stages_for,current_stage
+    result['workflow']=stages_for(row)
+    result['active_stage']=current_stage(row)
     if detail:
         result['history'] = [dict(id=h.id, action=h.action, reason=h.reason,
             actor=session.get(User, h.actor_id).name, version=h.version,
@@ -160,9 +165,10 @@ def serialize_cr(row, session, detail=False):
     return result
 
 
-def audit(session, row, user, action, reason=''):
+def audit(session, row, user, action, reason='', stage=None):
     snapshot=json.loads(row.content)
     snapshot['_files']=file_list(session,row.id)
+    if stage:snapshot['_stage_decision']=stage
     snapshot['_actor']={'name':user.name,'email':user.email,'role':user.role}
     session.add(CRHistory(cr_id=row.id, actor_id=user.id, action=action,
         reason=reason, version=row.version, snapshot=json.dumps(snapshot,default=str)))
@@ -179,10 +185,12 @@ def mutate(session, row, version, **values):
 
 
 def register_changes(app):
+    from app.cr_workflow import configuration,stages_for,current_stage,stage_status,register_workflow
+    register_workflow(app)
     @app.get('/api/changes/{cr_id}/istd-email')
     def istd_email(cr_id:int,user:User=Depends(current_user),session:Session=Depends(db)):
         staff(user)
-        from app.cr_email import current_approval_cycle,draft_message
+        from app.cr_email import current_approval_cycle,draft_message,approval_decisions
         row=read_cr(session,cr_id)
         history=session.scalars(select(CRHistory).where(CRHistory.cr_id==cr_id).order_by(CRHistory.id)).all()
         submission,support,approval,file_ids=current_approval_cycle(row,history)
@@ -192,8 +200,9 @@ def register_changes(app):
             if not file or file.cr_id!=row.id or file.kind!=kind:
                 raise HTTPException(409,'Approved document is no longer available')
             files.append(file)
-        identities={h.actor_id:session.get(User,h.actor_id) for h in (support,approval)}
-        payload,filename=draft_message(row,submission,support,approval,files,identities)
+        decisions=approval_decisions(history)
+        identities={h.actor_id:session.get(User,h.actor_id) for h in decisions}
+        payload,filename=draft_message(row,submission,support,approval,files,identities,decisions)
         return Response(payload,media_type='message/rfc822',headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(filename,safe=''),'Cache-Control':'no-store'})
 
     @app.get('/api/changes/forms/schema')
@@ -267,7 +276,7 @@ def register_changes(app):
         session.execute(update(CRSequence).where(CRSequence.day==day).values(value=CRSequence.value+1))
         sequence = session.scalar(select(CRSequence.value).where(CRSequence.day==day))
         row = ChangeRequest(number=f'CR# MOMCC-{day}-{sequence:02d}', owner_id=user.id,
-            content=CRContent().model_dump_json())
+            content=json.dumps({**CRContent().model_dump(mode='json'),'_workflow':configuration(session)['stages'],'_stage':0}))
         session.add(row)
         session.flush()
         audit(session, row, user, 'created')
@@ -375,6 +384,8 @@ def register_changes(app):
             notify_change(session,row,user,'comment',body.reason.strip())
             session.commit()
             return serialize_cr(row,session,True)
+        stage=None
+        content=json.loads(row.content)
         if body.action=='close':
             if user.id!=row.owner_id and user.role!='admin':
                 raise HTTPException(403,'Only the submitting Infra or Admin can close this CR')
@@ -392,9 +403,12 @@ def register_changes(app):
             missing=[k for k in ('background','scope') if not content.get(k,'').strip()]
             missing += [k for k in ('change_form','runbook','checklist') if k not in latest_files(session,row.id)]
             if missing:raise HTTPException(422,'Complete before submitting: '+', '.join(missing))
-            target = 'Pending Review'
+            content['_stage']=0
+            content.setdefault('_workflow',stages_for(row))
+            target = stage_status(content['_workflow'][0])
         else:
-            required_role = {'Pending Review':'infra_tl', 'Pending Approval':'infra_manager'}.get(row.status)
+            stage=current_stage(row)
+            required_role=stage['role'] if stage else None
             if not required_role:
                 raise HTTPException(409, 'CR is not awaiting review or approval')
             if user.role not in (required_role, 'admin'):
@@ -404,15 +418,16 @@ def register_changes(app):
             if body.action=='return':
                 if not body.reason.strip():
                     raise HTTPException(422, 'Return reason is required')
+                content['_stage']=0
                 target = 'In-progress'
-            elif body.action=='support' and row.status=='Pending Review':
-                target = 'Pending Approval'
-            elif body.action=='approve' and row.status=='Pending Approval':
-                target = 'Approved'
+            elif body.action==stage['action']:
+                content['_stage']=stage['index']+1
+                stages=stages_for(row)
+                target=stage_status(stages[content['_stage']]) if content['_stage']<len(stages) else 'Approved'
             else:
                 raise HTTPException(409, 'Invalid action for current stage')
-        mutate(session, row, body.version, status=target)
-        audit(session, row, user, body.action, body.reason.strip())
+        mutate(session, row, body.version, status=target,content=json.dumps(content))
+        audit(session, row, user, body.action, body.reason.strip(),stage)
         notify_change(session,row,user,body.action,body.reason.strip())
         session.commit()
         return serialize_cr(row, session, True)

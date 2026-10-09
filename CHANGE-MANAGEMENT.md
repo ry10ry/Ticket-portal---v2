@@ -57,3 +57,15 @@ Replace app/changes.py, app/cr_email.py, app/static/changes.js and app/static/in
 Raise Change Request now opens a required CR Date calendar before creating the record. Confirming the selected date calls POST /api/changes with cr_date in YYYY-MM-DD format and allocates CR# MOMCC-YYYYMMDD-NN using that date's independent transactional counter. Missing/invalid dates are rejected. Cancelling the date picker creates no record; after confirmation, closing the CR editor retains the In-progress record and its assigned number. Existing CR numbers remain unchanged, and counters are not reset after deletion. The selected date is shown in the CR detail window. Creation timestamps and monthly reports continue to reflect actual creation time.
 
 Replace app/changes.py, app/static/changes.js and app/static/index.html, rebuild Docker and refresh the browser. No database migration is required; the existing per-date sequence table is reused.
+
+## Admin-configurable CR approval workflow
+
+Admin settings now includes Change Request Workflow. Add up to eight ordered stages; each has a label, assigned internal role and action type (Review & Support or Approval). Move stages up/down, remove stages, or load the default TL Review & Support -> Manager Approve flow. Save CR Workflow explicitly commits the configuration. At least one stage is required, and the final stage must be an approval. No requester-role access is added: the requester here means the Infra person raising the CR.
+
+Every newly raised CR captures the configured stages. Existing CRs retain their captured workflow; legacy CRs without a captured workflow use the original TL -> Manager sequence. Admin configuration changes do not change drafts or active/approved records already created. Submission enters the first stage; each configured decision advances one stage. Only the assigned role or Admin can act, and the existing restriction against approving one's own CR remains (Admin can override). A return requires a reason and goes to In-progress; resubmission restarts all captured stages.
+
+Review-type stages count as Pending Review, approval-type stages as Pending Approval. Only completion of the last stage produces Approved. Notifications go to the next stage's assigned role. The detail window shows the captured flow/current stage. ISTD drafts require all decisions in the current submission cycle over the same content and documents; the separate approval record attachment includes every stage and actor. Manager-only flows do not invent TL support. The CSV export includes Workflow Approval Records; Closed records retain approval metadata. Completion evidence and Close CR remain required after internal approval.
+
+Configuration is saved separately from Fault Ticket settings in the existing settings table, with a version check against concurrent Admin edits. No dependency or database migration is required.
+
+Add: app/cr_workflow.py and app/static/cr-workflow.js. Replace: app/changes.py, app/cr_email.py, app/internal_views.py, app/static/changes.js, app/static/index.html and app/static/style.css. Rebuild Docker and refresh with Ctrl+F5.

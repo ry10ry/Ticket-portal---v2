@@ -40,14 +40,14 @@ def register_internal_views(app):
         model=ChangeRequest if kind=='cr' else ServiceRequest
         history_model=CRHistory if kind=='cr' else SRHistory
         history_key=history_model.cr_id if kind=='cr' else history_model.sr_id
-        headers=['CR Number','Status','Raised By','Background / Reason for Change','Scope of Change','Created SGT','Updated SGT','TL Supported By','TL Supported SGT','Approved By','Approved SGT','Uploaded Documents'] if kind=='cr' else ['SR Number','Status','Raised By','Subject','Description','Created SGT','Updated SGT','First Submitted SGT','Approved By','Approved SGT','Active Attachments']
+        headers=['CR Number','Status','Raised By','Background / Reason for Change','Scope of Change','Created SGT','Updated SGT','TL Supported By','TL Supported SGT','Approved By','Approved SGT','Uploaded Documents','Workflow Approval Records'] if kind=='cr' else ['SR Number','Status','Raised By','Subject','Description','Created SGT','Updated SGT','First Submitted SGT','Approved By','Approved SGT','Active Attachments']
         writer.writerow(headers)
         for row in s.scalars(select(model).where(model.created_at>=start,model.created_at<end).order_by(model.id)):
             history=s.scalars(select(history_model).where(history_key==row.id).order_by(history_model.id)).all()
             submission=next((i for i in range(len(history)-1,-1,-1) if history[i].action=='submit'),len(history))
             cycle=history[submission:]
-            support=next((h for h in cycle if h.action=='support'),None) if kind=='cr' and row.status in ('Pending Approval','Approved') else None
-            approval=next((h for h in cycle if h.action=='approve'),None) if row.status=='Approved' else None
+            support=next((h for h in cycle if h.action=='support'),None) if kind=='cr' and row.status in ('Pending Review','Pending Approval','Approved','Closed') else None
+            approval=next((h for h in cycle if h.action=='approve'),None) if row.status in ('Approved','Closed') else None
             def actor(h):
                 if not h:return ''
                 snapshot=json.loads(h.snapshot)
@@ -55,7 +55,7 @@ def register_internal_views(app):
             values=[row.number,row.status,s.get(User,row.owner_id).name]
             if kind=='cr':
                 content=json.loads(row.content);files=s.execute(select(CRFile.kind,CRFile.filename).where(CRFile.cr_id==row.id).order_by(CRFile.id)).all();latest={f.kind:f.filename for f in files}
-                values += [content.get('background',''),content.get('scope',''),local(row.created_at),local(row.updated_at),actor(support),local(support.created_at if support else None),actor(approval),local(approval.created_at if approval else None),'; '.join(latest.values())]
+                values += [content.get('background',''),content.get('scope',''),local(row.created_at),local(row.updated_at),actor(support),local(support.created_at if support else None),actor(approval),local(approval.created_at if approval else None),'; '.join(latest.values()),'; '.join((json.loads(h.snapshot).get('_stage_decision',{}).get('label',h.action.capitalize())+' / '+actor(h)+' / '+local(h.created_at)) for h in cycle if h.action in ('support','approve'))]
             else:
                 files=s.scalars(select(SRFile.filename).where(SRFile.sr_id==row.id,SRFile.active==True)).all()
                 values += [row.subject,row.description,local(row.created_at),local(row.updated_at),local(row.first_submitted_at),actor(approval),local(approval.created_at if approval else None),'; '.join(files)]
