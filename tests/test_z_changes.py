@@ -22,6 +22,8 @@ def test_upload_review_return_delete():
   assert r['status']=='In-progress' and i.get('/api/changes').json()['counts']['In-progress']==1
   def act(c,action,reason=''):
    return c.post(path+'/actions',json=dict(version=r['version'],action=action,reason=reason),headers=H)
+  assert act(i,'close').status_code==409
+  assert i.post(path+'/istd-evidence',json=dict(version=r['version'],filename='approval.pdf',data=base64.b64encode(b'%PDF-1.4').decode()),headers=H).status_code==409
   assert act(i,'submit').status_code==422
   data=uploads()
   assert q.get(path+'/templates/runbook').status_code==403
@@ -68,6 +70,28 @@ def test_upload_review_return_delete():
   assert 'MOMCC Infra TL Support' in record and 'MOMCC Infra Manager Approval' in record
   assert 'Please update runbook' not in body
   assert all(h['content'].get('_actor') for h in r['history'])
+  # Closing requires genuine internal approval plus an uploaded external approval record.
+  assert act(i,'close').status_code==422
+  evidence=dict(version=r['version'],filename='ISTD Approval.eml',data=base64.b64encode(b'From: istd@example.com\r\nSubject: Approved change\r\n\r\nApproved.\r\n').decode())
+  assert q.post(path+'/istd-evidence',json=evidence,headers=H).status_code==403
+  assert t.post(path+'/istd-evidence',json=evidence,headers=H).status_code==403
+  assert i.post(path+'/istd-evidence',json={**evidence,'filename':'bad.exe'},headers=H).status_code==422
+  assert i.post(path+'/istd-evidence',json={**evidence,'data':base64.b64encode(b'not an email').decode()},headers=H).status_code==422
+  assert i.post(path+'/istd-evidence',json={**evidence,'version':r['version']-1},headers=H).status_code==409
+  r=i.post(path+'/istd-evidence',json=evidence,headers=H).json()
+  assert r['status']=='Approved'
+  proof=next(f for f in r['files'] if f['kind']=='istd_approval')
+  assert t.get(path+'/files/'+str(proof['id'])).content==base64.b64decode(evidence['data'])
+  assert i.get(path+'/istd-email').status_code==200
+  assert act(t,'close').status_code==403
+  r=act(i,'close').json();assert r['status']=='Closed'
+  assert r['history'][-1]['action']=='close' and r['history'][-1]['content']['_files'][-1]['kind']=='istd_approval'
+  assert act(i,'close').status_code==409
+  assert i.post(path+'/istd-evidence',json={**evidence,'version':r['version']},headers=H).status_code==409
+  assert i.get(path+'/istd-email').status_code==200
+  listed=i.get('/api/changes').json()
+  assert listed['items'][0]['status']=='Closed' and listed['counts']['Total CR']==1
+  assert listed['counts']['Pending Approval']==0
   assert i.post(path+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==403
   assert a.post(path+'/delete',json=dict(version=r['version']-1,action='comment'),headers=H).status_code==409
   assert a.post(path+'/delete',json=dict(version=r['version'],action='comment'),headers=H).status_code==200

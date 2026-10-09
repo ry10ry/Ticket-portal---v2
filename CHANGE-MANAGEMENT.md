@@ -43,3 +43,11 @@ For this email update, replace app/changes.py and app/static/changes.js and add 
 ### ISTD body format update
 
 The draft body now contains Dear ISTD, bold Background / Reason for Change and Scope of Change headings with their entered text, followed by “For you review and support.” and the screenshot-style summary table. S/N is 1 and CR Number is filled; Environment, Description, Deployment Start Date/Time and Impact Assessment remain blank for editing in Outlook. Support/approval details appear only in the independent text attachment. Approval prerequisites and the three approved document attachments are unchanged. Replace app/cr_email.py, rebuild web/scheduler, and download a new draft; existing downloaded EML files do not change.
+
+## ISTD approval evidence and closure
+
+Internal Manager Approval leaves the CR at Approved. Infra downloads the ISTD email draft and sends it manually in Outlook. After receiving ISTD approval, the submitting Infra or Admin uploads the approval Email or supporting document using Upload Approval Evidence. Accepted formats: EML, MSG, PDF, DOCX, PNG and JPEG, maximum 10 MB each. Earlier proof versions remain in history when replaced. File format validation checks the uploaded format; the submitting user verifies that the content records ISTD approval.
+
+Close CR becomes available only after evidence is uploaded, and asks the user to confirm that ISTD approved the change. The backend independently enforces Approved status, owner/Admin access, current revision and the existence of evidence. Closing records the actor/time and changes status to Closed; uploads are then disabled. Closed CRs remain in Total CR and can be found with the Closed status filter. The proof, history and original ISTD email draft remain available to internal staff. Evidence upload and closure notify Admin and the owner, excluding the actor. Admin can still delete a Closed CR.
+
+Replace app/changes.py, app/cr_email.py, app/static/changes.js and app/static/index.html, rebuild the Docker application and refresh the browser. No new dependencies or database migration are required.

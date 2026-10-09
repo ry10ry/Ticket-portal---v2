@@ -13,8 +13,8 @@ LABELS={'change_form':'CR Form','runbook':'Runbook','checklist':'Checklist-RFC-I
 
 
 def current_approval_cycle(row, history):
-    if row.status!='Approved':
-        raise HTTPException(409,'Only an Approved CR can generate an ISTD email draft')
+    if row.status not in ('Approved','Closed'):
+        raise HTTPException(409,'Only an Approved or Closed CR can generate an ISTD email draft')
     start=next((i for i in range(len(history)-1,-1,-1) if history[i].action=='submit'),None)
     if start is None:raise HTTPException(409,'Current submission record is missing')
     cycle=history[start:]

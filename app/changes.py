@@ -4,6 +4,7 @@ import base64
 import binascii
 import io
 import zipfile
+from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Literal
@@ -60,7 +61,7 @@ class CRNotification(Base):
 
 def notify_change(session,row,user,action,reason=''):
     role='infra_tl' if action=='submit' else 'infra_manager' if action=='support' else None
-    recipients=[row.owner_id] if action in ('return','approve','comment') else []
+    recipients=[row.owner_id] if action in ('return','approve','comment','close','istd_evidence') else []
     roles=[role,'admin'] if role else ['admin']
     recipients += [u.id for u in session.scalars(select(User).where(User.role.in_(roles)))]
     for id in set(recipients)-{user.id}:
@@ -122,9 +123,15 @@ class CRSave(BaseModel):
     uploads: list[CRUpload] = Field(default_factory=list, max_length=3)
 
 
+class CREvidence(BaseModel):
+    version: int = Field(ge=1)
+    filename: str = Field(min_length=1, max_length=255)
+    data: str = Field(max_length=14000000)
+
+
 class CRAction(BaseModel):
     version: int = Field(ge=1)
-    action: Literal['submit', 'support', 'approve', 'return', 'comment']
+    action: Literal['submit', 'support', 'approve', 'return', 'comment', 'close']
     reason: str = Field(default='', max_length=20000)
 
 
@@ -268,6 +275,44 @@ def register_changes(app):
         staff(user)
         return serialize_cr(read_cr(session, cr_id), session, True)
 
+    @app.post('/api/changes/{cr_id}/istd-evidence', dependencies=[Depends(write_guard)])
+    def upload_istd_evidence(cr_id: int, body: CREvidence, user: User=Depends(current_user), session: Session=Depends(db)):
+        staff(user)
+        row=read_cr(session,cr_id)
+        if user.id!=row.owner_id and user.role!='admin':
+            raise HTTPException(403,'Only the submitting Infra or Admin can upload ISTD approval evidence')
+        if row.status!='Approved':
+            raise HTTPException(409,'ISTD approval evidence can only be uploaded after internal approval')
+        safe_name=body.filename.replace('\\','/').split('/')[-1]
+        safe_name=''.join(ch for ch in safe_name if ord(ch)>=32 and ord(ch)!=127)
+        extension=Path(safe_name).suffix.lower()
+        if extension not in ('.eml','.msg','.pdf','.docx','.png','.jpg','.jpeg'):
+            raise HTTPException(422,'Use an Email (.eml/.msg), PDF, DOCX, PNG or JPEG approval document')
+        try:
+            data=base64.b64decode(body.data,validate=True)
+            if not 0<len(data)<=10*1024*1024:raise ValueError()
+            if extension=='.eml':
+                from email.parser import BytesParser
+                from email import policy
+                message=BytesParser(policy=policy.default).parsebytes(data)
+                valid=bool(message.get('From') and message.get('Subject') and not message.defects)
+            elif extension=='.docx':
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    valid=sum(f.file_size for f in archive.infolist())<=100*1024*1024 and 'word/document.xml' in archive.namelist() and archive.testzip() is None
+            else:
+                signatures={'.msg':b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1','.pdf':b'%PDF-', '.png':b'\x89PNG\r\n\x1a\n', '.jpg':b'\xff\xd8\xff','.jpeg':b'\xff\xd8\xff'}
+                valid=data.startswith(signatures[extension])
+            if not valid:raise ValueError()
+        except (ValueError,binascii.Error,zipfile.BadZipFile,RuntimeError):
+            raise HTTPException(422,'Invalid approval evidence file (maximum 10 MB)')
+        mutate(session,row,body.version)
+        session.add(CRFile(cr_id=row.id,kind='istd_approval',filename=safe_name,data=data,version=row.version,uploaded_by=user.id))
+        session.flush()
+        audit(session,row,user,'istd_evidence','Uploaded ISTD approval evidence: '+safe_name)
+        notify_change(session,row,user,'istd_evidence')
+        session.commit()
+        return serialize_cr(row,session,True)
+
     @app.post('/api/changes/{cr_id}/save', dependencies=[Depends(write_guard)])
     def save_change(cr_id: int, body: CRSave, user: User=Depends(current_user), session: Session=Depends(db)):
         staff(user)
@@ -325,7 +370,15 @@ def register_changes(app):
             notify_change(session,row,user,'comment',body.reason.strip())
             session.commit()
             return serialize_cr(row,session,True)
-        if body.action=='submit':
+        if body.action=='close':
+            if user.id!=row.owner_id and user.role!='admin':
+                raise HTTPException(403,'Only the submitting Infra or Admin can close this CR')
+            if row.status!='Approved':
+                raise HTTPException(409,'Only an Approved CR can be closed')
+            if 'istd_approval' not in latest_files(session,row.id):
+                raise HTTPException(422,'Upload ISTD approval Email or supporting document before closing')
+            target='Closed'
+        elif body.action=='submit':
             if user.id!=row.owner_id and user.role!='admin':
                 raise HTTPException(403, 'Only the submitting Infra or Admin can submit')
             if row.status!='In-progress':
