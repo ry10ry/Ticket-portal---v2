@@ -56,3 +56,13 @@ Replace app/services.py, app/static/services.js and app/static/changes.js, then 
 Raise Service Request opens a required SR Date calendar. Confirming creates an In-progress SR and allocates SR#MOMCC-YYYYMMDD-NN using the selected date's independent counter. POST /api/services now requires sr_date in YYYY-MM-DD format. Cancel before confirming creates no record; closing the editor after creation retains the SR. Existing numbers remain unchanged, and deletion does not reset numbering. Actual creation timestamps and monthly report date boundaries remain unchanged. The selected date is shown in the request detail window.
 
 Replace app/services.py, app/static/services.js and app/static/index.html, rebuild Docker and refresh the browser. No database migration or new dependencies are required.
+
+## Approved SR customer email draft
+
+After TL, Manager or Admin approval, the SR detail page offers Download Customer Email Draft (.eml). Subject is the SR Subject; the plain/HTML body uses the Description with line breaks. HTML text is escaped. Uploaded PNG, JPEG, GIF and WebP screenshots are embedded as inline CID images (no portal access is needed to see them). Other active files, including Excel, retain their filenames and bytes as attachments. No visitor rows or tables are invented; provide these as uploaded documents or screenshots.
+
+A separate SR#MOMCC-... - Approval Record.txt attachment records the approver name, email, role, Singapore approval time, approval Comment, audit ID/revision and the approved file list. New history snapshots preserve identity at action time; older approvals fall back to the recorded user's current identity. Approval details are not added to the customer-facing body. Comments after approval do not invalidate a draft; returned, unapproved, missing/stale approval records or mismatched content/file lists are rejected. Requester-role users cannot download drafts.
+
+The portal does not send email. To, Cc and From are blank. Open the EML in Outlook, add the customer recipients, review the content/screenshots/attachments and send manually. X-Unsent: 1 marks it as a draft; if Outlook opens it in reading mode, use Forward and verify the embedded pictures and attachments. Outlook itself is not tested in this Linux environment.
+
+Add app/sr_email.py. Replace app/services.py, app/static/services.js and app/static/index.html. Rebuild Docker, refresh with Ctrl+F5. No new dependency or database migration is required.

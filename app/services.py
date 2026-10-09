@@ -85,7 +85,7 @@ def serialize(s,r,detail=False):
     return data
 def audit(s,r,u,action,comment=''):
     import json
-    s.add(SRHistory(sr_id=r.id,actor_id=u.id,action=action,comment=comment,snapshot=json.dumps(dict(subject=r.subject,description=r.description,status=r.status,version=r.version,files=files(s,r.id)))))
+    s.add(SRHistory(sr_id=r.id,actor_id=u.id,action=action,comment=comment,snapshot=json.dumps(dict(subject=r.subject,description=r.description,status=r.status,version=r.version,files=files(s,r.id),_actor=dict(name=u.name,email=u.email,role=u.role)))))
 def mutate(s,r,version,**values):
     result=s.execute(update(ServiceRequest).where(ServiceRequest.id==r.id,ServiceRequest.version==version).values(**values,version=version+1,updated_at=now()))
     if result.rowcount!=1:s.rollback();raise HTTPException(409,'SR changed. Reload before saving or approving.')
@@ -126,6 +126,16 @@ def register_services(app):
     @app.get('/api/services/{id}')
     def detail(id:int,u:User=Depends(current_user),s:Session=Depends(db)):
         staff(u);return serialize(s,get_sr(s,id),True)
+    @app.get('/api/services/{id}/customer-email')
+    def customer_email(id:int,u:User=Depends(current_user),s:Session=Depends(db)):
+        staff(u)
+        from app.sr_email import current_approval,draft_message
+        r=get_sr(s,id)
+        history=s.scalars(select(SRHistory).where(SRHistory.sr_id==id).order_by(SRHistory.id)).all()
+        attachments=s.scalars(select(SRFile).where(SRFile.sr_id==id,SRFile.active==True).order_by(SRFile.id)).all()
+        submission,approval=current_approval(r,history,attachments)
+        payload,filename=draft_message(r,submission,approval,attachments,s.get(User,approval.actor_id),s.get(User,r.owner_id))
+        return Response(payload,media_type='message/rfc822',headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(filename,safe=''),'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
     @app.get('/api/services/{id}/files/{file_id}')
     def download(id:int,file_id:int,preview:bool=False,u:User=Depends(current_user),s:Session=Depends(db)):
         staff(u);get_sr(s,id);f=s.get(SRFile,file_id)
