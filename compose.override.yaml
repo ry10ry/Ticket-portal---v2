@@ -1,0 +1,10 @@
+services:
+  web:
+    environment:
+      UPLOAD_DIR: /data/attachments
+    volumes:
+      - attachments_data:/data/attachments
+volumes:
+  attachments_data:
+    external: true
+    name: momcc-servicedesk_attachments_data
